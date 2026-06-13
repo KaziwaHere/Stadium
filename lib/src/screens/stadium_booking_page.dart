@@ -1,0 +1,558 @@
+import 'dart:ui';
+
+import 'package:flutter/material.dart';
+import 'package:stadium/src/models/stadium.dart';
+import 'package:stadium/src/theme/app_theme.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+class StadiumBookingPage extends StatefulWidget {
+  const StadiumBookingPage({
+    super.key,
+    required this.stadium,
+    required this.gradient,
+  });
+
+  final Stadium stadium;
+  final List<Color> gradient;
+
+  @override
+  State<StadiumBookingPage> createState() => _StadiumBookingPageState();
+}
+
+class _StadiumBookingPageState extends State<StadiumBookingPage> {
+  int _selectedDayIndex = 0;
+  BookingSlot? _selectedSlot;
+
+  BookingDay get _selectedDay => widget.stadium.days[_selectedDayIndex];
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+
+    return Scaffold(
+      body: Stack(
+        children: [
+          _BookingBackground(colors: colors),
+          SafeArea(
+            child: ListView(
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(20, 14, 20, 28),
+              children: [
+                Row(
+                  children: [
+                    _IconButton(
+                      icon: Icons.arrow_back_rounded,
+                      onTap: () => Navigator.of(context).pop(),
+                    ),
+                    const Spacer(),
+                    _IconButton(icon: Icons.favorite_border_rounded),
+                  ],
+                ),
+                const SizedBox(height: 22),
+                _StadiumHero(
+                  stadium: widget.stadium,
+                  gradient: widget.gradient,
+                ),
+                const SizedBox(height: 16),
+                _LocationPanel(stadium: widget.stadium),
+                const SizedBox(height: 24),
+                Text(
+                  'Choose a day',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 92,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    physics: const BouncingScrollPhysics(),
+                    itemBuilder: (context, index) {
+                      final day = widget.stadium.days[index];
+                      final isSelected = index == _selectedDayIndex;
+
+                      return _DayChip(
+                        day: day,
+                        isSelected: isSelected,
+                        onTap: () {
+                          setState(() {
+                            _selectedDayIndex = index;
+                            _selectedSlot = null;
+                          });
+                        },
+                      );
+                    },
+                    separatorBuilder: (context, index) =>
+                        const SizedBox(width: 10),
+                    itemCount: widget.stadium.days.length,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Available times',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      '${_selectedDay.label}, ${_selectedDay.date}',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: .58),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: _selectedDay.slots.length,
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 2,
+                    crossAxisSpacing: 12,
+                    mainAxisSpacing: 12,
+                    childAspectRatio: 2.45,
+                  ),
+                  itemBuilder: (context, index) {
+                    final slot = _selectedDay.slots[index];
+                    final isSelected = _selectedSlot == slot;
+
+                    return _TimeSlotButton(
+                      slot: slot,
+                      isSelected: isSelected,
+                      onTap: slot.isBooked
+                          ? null
+                          : () {
+                              setState(() => _selectedSlot = slot);
+                            },
+                    );
+                  },
+                ),
+                const SizedBox(height: 24),
+                _Legend(colors: colors),
+                const SizedBox(height: 24),
+                SizedBox(
+                  height: 54,
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: _selectedSlot == null
+                          ? colors.glassFill
+                          : colors.action,
+                      foregroundColor: _selectedSlot == null
+                          ? Colors.white.withValues(alpha: .46)
+                          : colors.onAction,
+                      disabledBackgroundColor: colors.glassFill,
+                      disabledForegroundColor: Colors.white.withValues(
+                        alpha: .46,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                    ),
+                    onPressed: _selectedSlot == null ? null : () {},
+                    child: Text(
+                      _selectedSlot == null
+                          ? 'Select a time'
+                          : 'Book ${_selectedSlot!.time}',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LocationPanel extends StatelessWidget {
+  const _LocationPanel({required this.stadium});
+
+  final Stadium stadium;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: TextButton.icon(
+        style: TextButton.styleFrom(
+          foregroundColor: colors.action,
+          padding: EdgeInsets.zero,
+          minimumSize: const Size(0, 30),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          visualDensity: VisualDensity.compact,
+        ),
+        onPressed: () => _openGoogleMaps(stadium),
+        icon: const Icon(Icons.map_rounded, size: 16),
+        label: const Text(
+          'View on map',
+          style: TextStyle(fontWeight: FontWeight.w900),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openGoogleMaps(Stadium stadium) async {
+    final query = Uri.encodeComponent('${stadium.name}, ${stadium.location}');
+    final uri = Uri.parse(
+      'https://www.google.com/maps/search/?api=1&query=$query',
+    );
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+}
+
+class _BookingBackground extends StatelessWidget {
+  const _BookingBackground({required this.colors});
+
+  final AppColors colors;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: colors.backgroundGradient,
+        ),
+      ),
+    );
+  }
+}
+
+class _StadiumHero extends StatelessWidget {
+  const _StadiumHero({required this.stadium, required this.gradient});
+
+  final Stadium stadium;
+  final List<Color> gradient;
+
+  @override
+  Widget build(BuildContext context) {
+    return _GlassPanel(
+      padding: const EdgeInsets.all(14),
+      child: Container(
+        height: 220,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: gradient,
+          ),
+          borderRadius: BorderRadius.circular(26),
+        ),
+        child: Stack(
+          children: [
+            Positioned(
+              right: -18,
+              bottom: -24,
+              child: Icon(
+                stadium.icon,
+                size: 168,
+                color: Colors.white.withValues(alpha: .13),
+              ),
+            ),
+            Positioned(
+              left: 18,
+              right: 18,
+              bottom: 18,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          stadium.name,
+                          style: Theme.of(context).textTheme.headlineMedium
+                              ?.copyWith(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w900,
+                              ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          stadium.location,
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: .7),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Text(
+                    '\$${stadium.price}/h',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DayChip extends StatelessWidget {
+  const _DayChip({
+    required this.day,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  final BookingDay day;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        width: 96,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        decoration: BoxDecoration(
+          color: isSelected ? colors.activeNavFill : colors.glassFill,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isSelected ? colors.action : colors.glassBorder,
+          ),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              day.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: isSelected ? colors.action : Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              day.date,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: .54),
+                fontSize: 12,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TimeSlotButton extends StatelessWidget {
+  const _TimeSlotButton({
+    required this.slot,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  final BookingSlot slot;
+  final bool isSelected;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final isBooked = slot.isBooked;
+
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: isBooked
+              ? Colors.white.withValues(alpha: .045)
+              : isSelected
+              ? colors.action
+              : colors.glassFill,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: isBooked
+                ? colors.glassBorder.withValues(alpha: .4)
+                : isSelected
+                ? colors.action
+                : colors.glassBorder,
+          ),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              slot.time,
+              style: TextStyle(
+                color: isBooked
+                    ? Colors.white.withValues(alpha: .28)
+                    : isSelected
+                    ? colors.onAction
+                    : Colors.white,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            if (isBooked) ...[
+              const SizedBox(height: 3),
+              Text(
+                'Booked',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: .26),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _Legend extends StatelessWidget {
+  const _Legend({required this.colors});
+
+  final AppColors colors;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        _LegendItem(color: colors.action, label: 'Selected'),
+        const SizedBox(width: 16),
+        _LegendItem(color: colors.glassFill, label: 'Available'),
+        const SizedBox(width: 16),
+        _LegendItem(
+          color: Colors.white.withValues(alpha: .08),
+          label: 'Booked',
+        ),
+      ],
+    );
+  }
+}
+
+class _LegendItem extends StatelessWidget {
+  const _LegendItem({required this.color, required this.label});
+
+  final Color color;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: .58),
+            fontWeight: FontWeight.w700,
+            fontSize: 12,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _IconButton extends StatelessWidget {
+  const _IconButton({required this.icon, this.onTap});
+
+  final IconData icon;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: _GlassPanel(
+        borderRadius: 16,
+        padding: EdgeInsets.zero,
+        child: SizedBox(
+          width: 46,
+          height: 46,
+          child: Icon(
+            icon,
+            color: Colors.white.withValues(alpha: .86),
+            size: 22,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GlassPanel extends StatelessWidget {
+  const _GlassPanel({
+    required this.child,
+    this.padding = const EdgeInsets.all(18),
+    this.borderRadius = 24,
+  });
+
+  final Widget child;
+  final EdgeInsetsGeometry padding;
+  final double borderRadius;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(borderRadius),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+        child: Container(
+          padding: padding,
+          decoration: BoxDecoration(
+            color: colors.glassFill,
+            borderRadius: BorderRadius.circular(borderRadius),
+            border: Border.all(color: colors.glassBorder),
+            boxShadow: [
+              BoxShadow(
+                color: colors.shadow,
+                blurRadius: 30,
+                offset: const Offset(0, 18),
+              ),
+            ],
+          ),
+          child: child,
+        ),
+      ),
+    );
+  }
+}
