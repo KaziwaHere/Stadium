@@ -1,242 +1,250 @@
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:appwrite/models.dart' as models;
+import 'package:stadium/src/data/stadium_data.dart';
 import 'package:stadium/src/models/stadium.dart';
 import 'package:stadium/src/screens/stadium_booking_page.dart';
+import 'package:stadium/src/services/favorite_service.dart';
 import 'package:stadium/src/theme/app_theme.dart';
 
-class StadiumHomePage extends StatelessWidget {
-  const StadiumHomePage({super.key});
+class StadiumHomePage extends StatefulWidget {
+  const StadiumHomePage({
+    super.key,
+    required this.user,
+    this.favoritesRepository,
+    this.favoritesVersion,
+    this.onFavoritesChanged,
+  });
 
-  static const _stadiums = [
-    Stadium(
-      name: 'Emerald Arena',
-      location: 'Downtown District',
-      rating: 4.9,
-      price: 85,
-      available: 'Today, 8:30 PM',
-      icon: Icons.stadium_rounded,
-      days: [
-        BookingDay(
-          label: 'Today',
-          date: 'Jun 13',
-          slots: [
-            BookingSlot(time: '6:00 PM', isBooked: false),
-            BookingSlot(time: '7:00 PM', isBooked: true),
-            BookingSlot(time: '8:30 PM', isBooked: false),
-            BookingSlot(time: '10:00 PM', isBooked: false),
-          ],
-        ),
-        BookingDay(
-          label: 'Tomorrow',
-          date: 'Jun 14',
-          slots: [
-            BookingSlot(time: '5:30 PM', isBooked: true),
-            BookingSlot(time: '7:00 PM', isBooked: false),
-            BookingSlot(time: '8:30 PM', isBooked: false),
-            BookingSlot(time: '10:00 PM', isBooked: true),
-          ],
-        ),
-        BookingDay(
-          label: 'Mon',
-          date: 'Jun 15',
-          slots: [
-            BookingSlot(time: '6:00 PM', isBooked: false),
-            BookingSlot(time: '7:30 PM', isBooked: false),
-            BookingSlot(time: '9:00 PM', isBooked: true),
-            BookingSlot(time: '10:30 PM', isBooked: false),
-          ],
-        ),
-      ],
-    ),
-    Stadium(
-      name: 'Northside Pitch',
-      location: 'Al Mansour',
-      rating: 4.7,
-      price: 62,
-      available: 'Tomorrow, 7:00 PM',
-      icon: Icons.sports_soccer_rounded,
-      days: [
-        BookingDay(
-          label: 'Today',
-          date: 'Jun 13',
-          slots: [
-            BookingSlot(time: '5:00 PM', isBooked: true),
-            BookingSlot(time: '6:30 PM', isBooked: true),
-            BookingSlot(time: '8:00 PM', isBooked: false),
-            BookingSlot(time: '9:30 PM', isBooked: false),
-          ],
-        ),
-        BookingDay(
-          label: 'Tomorrow',
-          date: 'Jun 14',
-          slots: [
-            BookingSlot(time: '5:30 PM', isBooked: false),
-            BookingSlot(time: '7:00 PM', isBooked: false),
-            BookingSlot(time: '8:30 PM', isBooked: true),
-            BookingSlot(time: '10:00 PM', isBooked: false),
-          ],
-        ),
-        BookingDay(
-          label: 'Mon',
-          date: 'Jun 15',
-          slots: [
-            BookingSlot(time: '6:00 PM', isBooked: true),
-            BookingSlot(time: '7:30 PM', isBooked: false),
-            BookingSlot(time: '9:00 PM', isBooked: false),
-            BookingSlot(time: '10:30 PM', isBooked: false),
-          ],
-        ),
-      ],
-    ),
-    Stadium(
-      name: 'The Green Bowl',
-      location: 'Riverside Park',
-      rating: 4.8,
-      price: 110,
-      available: 'Fri, 9:00 PM',
-      icon: Icons.grass_rounded,
-      days: [
-        BookingDay(
-          label: 'Today',
-          date: 'Jun 13',
-          slots: [
-            BookingSlot(time: '6:00 PM', isBooked: true),
-            BookingSlot(time: '7:30 PM', isBooked: false),
-            BookingSlot(time: '9:00 PM', isBooked: true),
-            BookingSlot(time: '10:30 PM', isBooked: false),
-          ],
-        ),
-        BookingDay(
-          label: 'Tomorrow',
-          date: 'Jun 14',
-          slots: [
-            BookingSlot(time: '5:00 PM', isBooked: false),
-            BookingSlot(time: '6:30 PM', isBooked: false),
-            BookingSlot(time: '8:00 PM', isBooked: true),
-            BookingSlot(time: '9:30 PM', isBooked: false),
-          ],
-        ),
-        BookingDay(
-          label: 'Mon',
-          date: 'Jun 15',
-          slots: [
-            BookingSlot(time: '6:00 PM', isBooked: false),
-            BookingSlot(time: '7:30 PM', isBooked: true),
-            BookingSlot(time: '9:00 PM', isBooked: false),
-            BookingSlot(time: '10:30 PM', isBooked: false),
-          ],
-        ),
-      ],
-    ),
-  ];
+  final models.User user;
+  final FavoritesRepository? favoritesRepository;
+  final ValueListenable<int>? favoritesVersion;
+  final VoidCallback? onFavoritesChanged;
+
+  @override
+  State<StadiumHomePage> createState() => _StadiumHomePageState();
+}
+
+class _StadiumHomePageState extends State<StadiumHomePage> {
+  late Future<Set<String>> _favoriteIdsFuture;
+  Set<String> _favoriteIds = {};
+  final Set<String> _updatingFavoriteIds = {};
+
+  FavoritesRepository get _favoritesRepository =>
+      widget.favoritesRepository ?? favoriteService;
+
+  @override
+  void initState() {
+    super.initState();
+    _favoriteIdsFuture = _loadFavoriteIds();
+    widget.favoritesVersion?.addListener(_handleFavoritesChanged);
+  }
+
+  @override
+  void didUpdateWidget(StadiumHomePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.favoritesVersion == widget.favoritesVersion) return;
+
+    oldWidget.favoritesVersion?.removeListener(_handleFavoritesChanged);
+    widget.favoritesVersion?.addListener(_handleFavoritesChanged);
+  }
+
+  @override
+  void dispose() {
+    widget.favoritesVersion?.removeListener(_handleFavoritesChanged);
+    super.dispose();
+  }
+
+  Future<Set<String>> _loadFavoriteIds() async {
+    final ids = await _favoritesRepository.favoriteStadiumIds(widget.user.$id);
+    _favoriteIds = ids;
+    return ids;
+  }
+
+  void _handleFavoritesChanged() {
+    final favoriteIdsFuture = _loadFavoriteIds();
+    setState(() {
+      _favoriteIdsFuture = favoriteIdsFuture;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
 
-    return Scaffold(
-      body: Stack(
-        children: [
-          const _AmbientBackground(),
-          SafeArea(
-            child: CustomScrollView(
-              physics: const BouncingScrollPhysics(),
-              slivers: [
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
-                  sliver: SliverToBoxAdapter(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const _TopBar(),
-                        const SizedBox(height: 24),
-                        Text(
-                          'Book your next football pitch',
-                          style: Theme.of(context).textTheme.displaySmall
-                              ?.copyWith(
-                                fontWeight: FontWeight.w800,
-                                height: 1.05,
-                                color: Colors.white,
+    return FutureBuilder<Set<String>>(
+      future: _favoriteIdsFuture,
+      builder: (context, snapshot) {
+        return Scaffold(
+          body: Stack(
+            children: [
+              const _AmbientBackground(),
+              SafeArea(
+                child: CustomScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  slivers: [
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+                      sliver: SliverToBoxAdapter(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const _TopBar(),
+                            const SizedBox(height: 24),
+                            const SizedBox(height: 10),
+                            const SizedBox(height: 22),
+                            const _SearchPanel(),
+                            const SizedBox(height: 26),
+                            const _SectionHeader(
+                              title: 'Featured stadium',
+                              action: 'View all',
+                            ),
+                            const SizedBox(height: 14),
+                            _FeaturedStadium(
+                              stadium: stadiums.first,
+                              gradient: colors.stadiumGradients.first,
+                              isHearted: _isHearted(stadiums.first),
+                              isUpdating: _isUpdating(stadiums.first),
+                              onHeart: () => _toggleFavorite(stadiums.first),
+                              onBook: () => _openBookingPage(
+                                context,
+                                stadiums.first,
+                                colors.stadiumGradients.first,
                               ),
+                            ),
+                            const SizedBox(height: 28),
+                            const _SectionHeader(
+                              title: 'Available near you',
+                              action: 'Map',
+                            ),
+                            const SizedBox(height: 14),
+                          ],
                         ),
-                        const SizedBox(height: 10),
-                        Text(
-                          'Find modern stadiums, compare slots, and reserve instantly.',
-                          style: Theme.of(context).textTheme.bodyLarge
-                              ?.copyWith(
-                                color: Colors.white.withValues(alpha: .68),
-                                height: 1.35,
-                              ),
-                        ),
-                        const SizedBox(height: 22),
-                        const _SearchPanel(),
-                        const SizedBox(height: 26),
-                        const _SectionHeader(
-                          title: 'Featured stadium',
-                          action: 'View all',
-                        ),
-                        const SizedBox(height: 14),
-                        _FeaturedStadium(
-                          stadium: _stadiums.first,
-                          gradient: colors.stadiumGradients.first,
-                          onBook: () => _openBookingPage(
-                            context,
-                            _stadiums.first,
-                            colors.stadiumGradients.first,
-                          ),
-                        ),
-                        const SizedBox(height: 28),
-                        const _SectionHeader(
-                          title: 'Available near you',
-                          action: 'Map',
-                        ),
-                        const SizedBox(height: 14),
-                      ],
+                      ),
                     ),
-                  ),
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 110),
+                      sliver: SliverList.separated(
+                        itemBuilder: (context, index) {
+                          return _StadiumCard(
+                            stadium: stadiums[index],
+                            gradient:
+                                colors.stadiumGradients[index %
+                                    colors.stadiumGradients.length],
+                            isHearted: _isHearted(stadiums[index]),
+                            isUpdating: _isUpdating(stadiums[index]),
+                            onHeart: () => _toggleFavorite(stadiums[index]),
+                            onTap: () => _openBookingPage(
+                              context,
+                              stadiums[index],
+                              colors.stadiumGradients[index %
+                                  colors.stadiumGradients.length],
+                            ),
+                          );
+                        },
+                        separatorBuilder: (context, index) =>
+                            const SizedBox(height: 14),
+                        itemCount: stadiums.length,
+                      ),
+                    ),
+                  ],
                 ),
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(20, 0, 20, 110),
-                  sliver: SliverList.separated(
-                    itemBuilder: (context, index) {
-                      return _StadiumCard(
-                        stadium: _stadiums[index],
-                        gradient:
-                            colors.stadiumGradients[index %
-                                colors.stadiumGradients.length],
-                        onTap: () => _openBookingPage(
-                          context,
-                          _stadiums[index],
-                          colors.stadiumGradients[index %
-                              colors.stadiumGradients.length],
-                        ),
-                      );
-                    },
-                    separatorBuilder: (context, index) =>
-                        const SizedBox(height: 14),
-                    itemCount: _stadiums.length,
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
-  void _openBookingPage(
+  bool _isHearted(Stadium stadium) => _favoriteIds.contains(stadium.id);
+
+  bool _isUpdating(Stadium stadium) =>
+      _updatingFavoriteIds.contains(stadium.id);
+
+  Future<void> _toggleFavorite(Stadium stadium) async {
+    if (_updatingFavoriteIds.contains(stadium.id)) return;
+
+    final wasHearted = _favoriteIds.contains(stadium.id);
+
+    setState(() {
+      _updatingFavoriteIds.add(stadium.id);
+      if (wasHearted) {
+        _favoriteIds.remove(stadium.id);
+      } else {
+        _favoriteIds.add(stadium.id);
+      }
+    });
+
+    try {
+      if (wasHearted) {
+        await _favoritesRepository.removeFavorite(
+          userId: widget.user.$id,
+          stadiumId: stadium.id,
+        );
+      } else {
+        await _favoritesRepository.addFavorite(
+          userId: widget.user.$id,
+          stadium: stadium,
+        );
+      }
+      widget.onFavoritesChanged?.call();
+    } catch (error) {
+      if (!mounted) return;
+
+      setState(() {
+        if (wasHearted) {
+          _favoriteIds.add(stadium.id);
+        } else {
+          _favoriteIds.remove(stadium.id);
+        }
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            wasHearted
+                ? 'Could not remove ${stadium.name} from hearted stadiums.'
+                : 'Could not heart ${stadium.name}.',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _updatingFavoriteIds.remove(stadium.id));
+      }
+    }
+  }
+
+  Future<void> _openBookingPage(
     BuildContext context,
     Stadium stadium,
     List<Color> gradient,
-  ) {
-    Navigator.of(context).push(
+  ) async {
+    final isHearted = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
-        builder: (context) =>
-            StadiumBookingPage(stadium: stadium, gradient: gradient),
+        builder: (context) => StadiumBookingPage(
+          stadium: stadium,
+          gradient: gradient,
+          user: widget.user,
+          isHearted: _isHearted(stadium),
+          favoritesRepository: _favoritesRepository,
+        ),
       ),
     );
+
+    if (!mounted || isHearted == null) return;
+
+    setState(() {
+      if (isHearted) {
+        _favoriteIds.add(stadium.id);
+      } else {
+        _favoriteIds.remove(stadium.id);
+      }
+    });
+    widget.onFavoritesChanged?.call();
   }
 }
 
@@ -308,34 +316,44 @@ class _TopBar extends StatelessWidget {
     return Row(
       children: [
         Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Current location',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Colors.white.withValues(alpha: .5),
-                ),
-              ),
-              const SizedBox(height: 4),
-              Row(
-                children: [
-                  Icon(
-                    Icons.location_on_rounded,
-                    color: colors.mutedIcon,
-                    size: 18,
+          child: Text.rich(
+            TextSpan(
+              children: [
+                TextSpan(
+                  text: 'Stadium',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    color: Colors.white,
+                    fontFamily: 'Roboto',
+                    fontWeight: FontWeight.w900,
+                    height: 1,
                   ),
-                  const SizedBox(width: 4),
-                  Text(
-                    'Baghdad, Iraq',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
+                ),
+                WidgetSpan(
+                  alignment: PlaceholderAlignment.middle,
+                  child: Container(
+                    width: 7,
+                    height: 7,
+                    margin: const EdgeInsets.symmetric(horizontal: 10),
+                    decoration: BoxDecoration(
+                      color: colors.action,
+                      shape: BoxShape.circle,
                     ),
                   ),
-                ],
-              ),
-            ],
+                ),
+                TextSpan(
+                  text: 'Baghdad',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: Colors.white.withValues(alpha: .72),
+                    fontFamily: 'Roboto',
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    height: 1,
+                  ),
+                ),
+              ],
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
         ),
         const _GlassIconButton(icon: Icons.notifications_rounded),
@@ -357,6 +375,7 @@ class _SearchPanel extends StatelessWidget {
       child: Column(
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Icon(Icons.search_rounded, color: colors.mutedIcon),
               const SizedBox(width: 10),
@@ -485,11 +504,17 @@ class _FeaturedStadium extends StatelessWidget {
   const _FeaturedStadium({
     required this.stadium,
     required this.gradient,
+    required this.isHearted,
+    required this.isUpdating,
+    required this.onHeart,
     required this.onBook,
   });
 
   final Stadium stadium;
   final List<Color> gradient;
+  final bool isHearted;
+  final bool isUpdating;
+  final VoidCallback onHeart;
   final VoidCallback onBook;
 
   @override
@@ -536,6 +561,15 @@ class _FeaturedStadium extends StatelessWidget {
                   child: _Pill(
                     icon: Icons.star_rounded,
                     label: '${stadium.rating} top rated',
+                  ),
+                ),
+                Positioned(
+                  right: 14,
+                  top: 14,
+                  child: _HeartButton(
+                    isHearted: isHearted,
+                    isUpdating: isUpdating,
+                    onTap: onHeart,
                   ),
                 ),
                 Positioned(
@@ -605,11 +639,17 @@ class _StadiumCard extends StatelessWidget {
   const _StadiumCard({
     required this.stadium,
     required this.gradient,
+    required this.isHearted,
+    required this.isUpdating,
+    required this.onHeart,
     required this.onTap,
   });
 
   final Stadium stadium;
   final List<Color> gradient;
+  final bool isHearted;
+  final bool isUpdating;
+  final VoidCallback onHeart;
   final VoidCallback onTap;
 
   @override
@@ -694,10 +734,68 @@ class _StadiumCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 16),
-                const _GlassIconButton(icon: Icons.arrow_forward_rounded),
+                _HeartButton(
+                  isHearted: isHearted,
+                  isUpdating: isUpdating,
+                  onTap: onHeart,
+                ),
               ],
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HeartButton extends StatelessWidget {
+  const _HeartButton({
+    required this.isHearted,
+    required this.isUpdating,
+    required this.onTap,
+  });
+
+  final bool isHearted;
+  final bool isUpdating;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+
+    return GestureDetector(
+      onTap: isUpdating ? null : onTap,
+      child: GlassContainer(
+        borderRadius: 16,
+        padding: EdgeInsets.zero,
+        child: SizedBox(
+          width: 46,
+          height: 46,
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 160),
+            child: isUpdating
+                ? SizedBox(
+                    key: const ValueKey('heartLoading'),
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.2,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        colors.selection,
+                      ),
+                    ),
+                  )
+                : Icon(
+                    key: ValueKey(isHearted),
+                    isHearted
+                        ? Icons.favorite_rounded
+                        : Icons.favorite_border_rounded,
+                    color: isHearted
+                        ? colors.action
+                        : Colors.white.withValues(alpha: .86),
+                    size: 22,
+                  ),
+          ),
         ),
       ),
     );

@@ -1,12 +1,66 @@
-import 'package:flutter/widgets.dart';
+import 'package:appwrite/models.dart' as models;
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:stadium/app.dart';
+import 'package:stadium/src/data/stadium_data.dart';
+import 'package:stadium/src/models/stadium.dart';
+import 'package:stadium/src/screens/auth_page.dart';
+import 'package:stadium/src/screens/main_navigation_page.dart';
+import 'package:stadium/src/services/favorite_service.dart';
+import 'package:stadium/src/theme/app_theme.dart';
 
 void main() {
-  testWidgets('Stadium home page shows booking content', (tester) async {
-    await tester.pumpWidget(const StadiumBookingApp());
+  testWidgets('Auth page shows login and register modes', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.dark(),
+        home: AuthPage(onAuthenticated: (_) {}),
+      ),
+    );
 
-    expect(find.text('Book your next football pitch'), findsOneWidget);
+    expect(find.text('Welcome back'), findsOneWidget);
+    expect(find.text('Login'), findsOneWidget);
+    expect(find.text('Register'), findsOneWidget);
+    expect(find.text('Sign in'), findsOneWidget);
+    expect(find.text('Forgot password?'), findsOneWidget);
+
+    await tester.tap(find.text('Register'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Create your account'), findsOneWidget);
+    expect(find.text('Full name'), findsOneWidget);
+    expect(find.text('Create account'), findsOneWidget);
+    expect(find.text('Forgot password?'), findsNothing);
+  });
+
+  testWidgets('Auth validation updates on blur and while typing', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: AppTheme.dark(),
+        home: AuthPage(onAuthenticated: (_) {}),
+      ),
+    );
+
+    final emailField = find.byType(TextFormField).first;
+    final passwordField = find.byType(TextFormField).at(1);
+
+    await tester.tap(emailField);
+    await tester.pump();
+    await tester.tap(passwordField);
+    await tester.pump();
+
+    expect(find.text('Enter a valid email'), findsOneWidget);
+
+    await tester.enterText(emailField, 'hana@example.com');
+    await tester.pump();
+
+    expect(find.text('Enter a valid email'), findsNothing);
+  });
+
+  testWidgets('Stadium home page shows booking content', (tester) async {
+    await tester.pumpWidget(_TestApp(home: _navigationPage()));
+
     expect(find.text('Featured stadium'), findsOneWidget);
     expect(find.text('Emerald Arena'), findsWidgets);
     expect(find.text('Book now'), findsOneWidget);
@@ -16,7 +70,7 @@ void main() {
   });
 
   testWidgets('Bottom navigation switches pages', (tester) async {
-    await tester.pumpWidget(const StadiumBookingApp());
+    await tester.pumpWidget(_TestApp(home: _navigationPage()));
 
     await tester.tap(find.text('Bookings'));
     await tester.pumpAndSettle();
@@ -30,6 +84,8 @@ void main() {
     await tester.tap(find.text('Profile'));
     await tester.pumpAndSettle();
     expect(find.text('Personal details'), findsOneWidget);
+    expect(find.text('hana@example.com'), findsOneWidget);
+    expect(find.text('Sign out'), findsOneWidget);
   });
 
   testWidgets('Book now opens stadium booking slots', (tester) async {
@@ -40,7 +96,7 @@ void main() {
       tester.view.resetDevicePixelRatio();
     });
 
-    await tester.pumpWidget(const StadiumBookingApp());
+    await tester.pumpWidget(_TestApp(home: _navigationPage()));
 
     await tester.tap(find.text('Book now'));
     await tester.pumpAndSettle();
@@ -58,4 +114,104 @@ void main() {
     );
     expect(find.text('Select a time'), findsOneWidget);
   });
+}
+
+class _TestApp extends StatelessWidget {
+  const _TestApp({required this.home});
+
+  final Widget home;
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(theme: AppTheme.dark(), home: home);
+  }
+}
+
+MainNavigationPage _navigationPage() {
+  return MainNavigationPage(
+    user: _user(),
+    favoritesRepository: _FakeFavoritesRepository(),
+    onSignedOut: () {},
+  );
+}
+
+models.User _user() {
+  return models.User(
+    $id: 'user_1',
+    $createdAt: '2026-06-16T00:00:00.000+00:00',
+    $updatedAt: '2026-06-16T00:00:00.000+00:00',
+    name: 'Hana',
+    registration: '2026-06-16T00:00:00.000+00:00',
+    status: true,
+    labels: const [],
+    passwordUpdate: '',
+    email: 'hana@example.com',
+    phone: '',
+    emailVerification: false,
+    phoneVerification: false,
+    mfa: false,
+    prefs: models.Preferences(data: const {}),
+    targets: const [],
+    accessedAt: '2026-06-16T00:00:00.000+00:00',
+  );
+}
+
+class _FakeFavoritesRepository implements FavoritesRepository {
+  _FakeFavoritesRepository()
+    : _favorites = {
+        stadiums[1].id: FavoriteStadium(
+          rowId: 'favorite_1',
+          stadiumId: stadiums[1].id,
+          name: stadiums[1].name,
+          location: stadiums[1].location,
+          rating: stadiums[1].rating,
+          price: stadiums[1].price,
+          available: stadiums[1].available,
+          iconKey: stadiums[1].iconKey,
+        ),
+      };
+
+  final Map<String, FavoriteStadium> _favorites;
+
+  @override
+  Future<FavoriteStadium> addFavorite({
+    required String userId,
+    required Stadium stadium,
+  }) async {
+    final favorite = FavoriteStadium(
+      rowId: 'favorite_${stadium.id}',
+      stadiumId: stadium.id,
+      name: stadium.name,
+      location: stadium.location,
+      rating: stadium.rating,
+      price: stadium.price,
+      available: stadium.available,
+      iconKey: stadium.iconKey,
+    );
+    _favorites[stadium.id] = favorite;
+    return favorite;
+  }
+
+  @override
+  Future<Set<String>> favoriteStadiumIds(String userId) async {
+    return _favorites.keys.toSet();
+  }
+
+  @override
+  Future<List<FavoriteStadium>> listFavorites(String userId) async {
+    return _favorites.values.toList();
+  }
+
+  @override
+  Future<void> removeFavorite({
+    required String userId,
+    required String stadiumId,
+  }) async {
+    _favorites.remove(stadiumId);
+  }
+
+  @override
+  Future<void> removeFavoriteRow({required String rowId}) async {
+    _favorites.removeWhere((stadiumId, favorite) => favorite.rowId == rowId);
+  }
 }

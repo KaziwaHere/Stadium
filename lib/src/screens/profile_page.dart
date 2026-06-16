@@ -1,8 +1,21 @@
+import 'package:appwrite/appwrite.dart';
+import 'package:appwrite/models.dart' as models;
 import 'package:flutter/material.dart';
+import 'package:stadium/src/services/auth_service.dart';
 import 'package:stadium/src/theme/app_theme.dart';
 
-class ProfilePage extends StatelessWidget {
-  const ProfilePage({super.key});
+class ProfilePage extends StatefulWidget {
+  const ProfilePage({super.key, required this.user, required this.onSignedOut});
+
+  final models.User user;
+  final VoidCallback onSignedOut;
+
+  @override
+  State<ProfilePage> createState() => _ProfilePageState();
+}
+
+class _ProfilePageState extends State<ProfilePage> {
+  bool _isSigningOut = false;
 
   @override
   Widget build(BuildContext context) {
@@ -44,7 +57,9 @@ class ProfilePage extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Profile',
+                          widget.user.name.isEmpty
+                              ? 'Profile'
+                              : widget.user.name,
                           style: Theme.of(context).textTheme.headlineSmall
                               ?.copyWith(
                                 color: Colors.white,
@@ -53,7 +68,7 @@ class ProfilePage extends StatelessWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Manage your account and booking preferences.',
+                          widget.user.email,
                           style: TextStyle(
                             color: Colors.white.withValues(alpha: .6),
                             height: 1.35,
@@ -82,11 +97,59 @@ class ProfilePage extends StatelessWidget {
                 title: 'Notifications',
                 subtitle: 'Booking alerts and reminders',
               ),
+              const SizedBox(height: 22),
+              SizedBox(
+                height: 52,
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    side: BorderSide(color: colors.glassBorder),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                  ),
+                  onPressed: _isSigningOut ? null : _signOut,
+                  icon: _isSigningOut
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2.4),
+                        )
+                      : const Icon(Icons.logout_rounded),
+                  label: const Text(
+                    'Sign out',
+                    style: TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                ),
+              ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  Future<void> _signOut() async {
+    final messenger = ScaffoldMessenger.of(context);
+
+    setState(() => _isSigningOut = true);
+
+    try {
+      await authService.logout();
+      widget.onSignedOut();
+    } on AppwriteException catch (error) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(error.message ?? 'Sign out failed.')),
+      );
+    } catch (error) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('Sign out failed: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isSigningOut = false);
+      }
+    }
   }
 }
 

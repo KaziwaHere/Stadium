@@ -1,7 +1,9 @@
 import 'dart:ui';
 
+import 'package:appwrite/models.dart' as models;
 import 'package:flutter/material.dart';
 import 'package:stadium/src/models/stadium.dart';
+import 'package:stadium/src/services/favorite_service.dart';
 import 'package:stadium/src/theme/app_theme.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -10,10 +12,18 @@ class StadiumBookingPage extends StatefulWidget {
     super.key,
     required this.stadium,
     required this.gradient,
+    required this.user,
+    required this.isHearted,
+    this.favoriteRowId,
+    this.favoritesRepository,
   });
 
   final Stadium stadium;
   final List<Color> gradient;
+  final models.User user;
+  final bool isHearted;
+  final String? favoriteRowId;
+  final FavoritesRepository? favoritesRepository;
 
   @override
   State<StadiumBookingPage> createState() => _StadiumBookingPageState();
@@ -22,6 +32,11 @@ class StadiumBookingPage extends StatefulWidget {
 class _StadiumBookingPageState extends State<StadiumBookingPage> {
   int _selectedDayIndex = 0;
   BookingSlot? _selectedSlot;
+  late bool _isHearted = widget.isHearted;
+  bool _isUpdatingFavorite = false;
+
+  FavoritesRepository get _favoritesRepository =>
+      widget.favoritesRepository ?? favoriteService;
 
   BookingDay get _selectedDay => widget.stadium.days[_selectedDayIndex];
 
@@ -42,10 +57,17 @@ class _StadiumBookingPageState extends State<StadiumBookingPage> {
                   children: [
                     _IconButton(
                       icon: Icons.arrow_back_rounded,
-                      onTap: () => Navigator.of(context).pop(),
+                      onTap: () => Navigator.of(context).pop(_isHearted),
                     ),
                     const Spacer(),
-                    _IconButton(icon: Icons.favorite_border_rounded),
+                    _IconButton(
+                      icon: _isHearted
+                          ? Icons.favorite_rounded
+                          : Icons.favorite_border_rounded,
+                      isLoading: _isUpdatingFavorite,
+                      color: _isHearted ? colors.action : null,
+                      onTap: _toggleFavorite,
+                    ),
                   ],
                 ),
                 const SizedBox(height: 22),
@@ -175,6 +197,53 @@ class _StadiumBookingPageState extends State<StadiumBookingPage> {
         ],
       ),
     );
+  }
+
+  Future<void> _toggleFavorite() async {
+    if (_isUpdatingFavorite) return;
+
+    final wasHearted = _isHearted;
+
+    setState(() {
+      _isUpdatingFavorite = true;
+      _isHearted = !wasHearted;
+    });
+
+    try {
+      if (wasHearted) {
+        final favoriteRowId = widget.favoriteRowId;
+        if (favoriteRowId == null) {
+          await _favoritesRepository.removeFavorite(
+            userId: widget.user.$id,
+            stadiumId: widget.stadium.id,
+          );
+        } else {
+          await _favoritesRepository.removeFavoriteRow(rowId: favoriteRowId);
+        }
+      } else {
+        await _favoritesRepository.addFavorite(
+          userId: widget.user.$id,
+          stadium: widget.stadium,
+        );
+      }
+    } catch (error) {
+      if (!mounted) return;
+
+      setState(() => _isHearted = wasHearted);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            wasHearted
+                ? 'Could not remove ${widget.stadium.name} from hearted stadiums.'
+                : 'Could not heart ${widget.stadium.name}.',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isUpdatingFavorite = false);
+      }
+    }
   }
 }
 
@@ -339,7 +408,7 @@ class _DayChip extends StatelessWidget {
           color: isSelected ? colors.activeNavFill : colors.glassFill,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: isSelected ? colors.action : colors.glassBorder,
+            color: isSelected ? colors.selection : colors.glassBorder,
           ),
         ),
         child: Column(
@@ -350,7 +419,7 @@ class _DayChip extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                color: isSelected ? colors.action : Colors.white,
+                color: isSelected ? colors.selection : Colors.white,
                 fontSize: 13,
                 fontWeight: FontWeight.w900,
               ),
@@ -395,14 +464,14 @@ class _TimeSlotButton extends StatelessWidget {
           color: isBooked
               ? Colors.white.withValues(alpha: .045)
               : isSelected
-              ? colors.action
+              ? colors.selection
               : colors.glassFill,
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
             color: isBooked
                 ? colors.glassBorder.withValues(alpha: .4)
                 : isSelected
-                ? colors.action
+                ? colors.selection
                 : colors.glassBorder,
           ),
         ),
@@ -415,7 +484,7 @@ class _TimeSlotButton extends StatelessWidget {
                 color: isBooked
                     ? Colors.white.withValues(alpha: .28)
                     : isSelected
-                    ? colors.onAction
+                    ? colors.onSelection
                     : Colors.white,
                 fontWeight: FontWeight.w900,
               ),
@@ -447,7 +516,7 @@ class _Legend extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        _LegendItem(color: colors.action, label: 'Selected'),
+        _LegendItem(color: colors.selection, label: 'Selected'),
         const SizedBox(width: 16),
         _LegendItem(color: colors.glassFill, label: 'Available'),
         const SizedBox(width: 16),
@@ -491,26 +560,48 @@ class _LegendItem extends StatelessWidget {
 }
 
 class _IconButton extends StatelessWidget {
-  const _IconButton({required this.icon, this.onTap});
+  const _IconButton({
+    required this.icon,
+    this.onTap,
+    this.isLoading = false,
+    this.color,
+  });
 
   final IconData icon;
   final VoidCallback? onTap;
+  final bool isLoading;
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
+
     return GestureDetector(
-      onTap: onTap,
+      onTap: isLoading ? null : onTap,
       child: _GlassPanel(
         borderRadius: 16,
         padding: EdgeInsets.zero,
         child: SizedBox(
           width: 46,
           height: 46,
-          child: Icon(
-            icon,
-            color: Colors.white.withValues(alpha: .86),
-            size: 22,
-          ),
+          child: isLoading
+              ? Center(
+                  child: SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.2,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        colors.selection,
+                      ),
+                    ),
+                  ),
+                )
+              : Icon(
+                  icon,
+                  color: color ?? Colors.white.withValues(alpha: .86),
+                  size: 22,
+                ),
         ),
       ),
     );

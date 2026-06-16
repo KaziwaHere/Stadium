@@ -3,13 +3,15 @@ import 'package:flutter/material.dart';
 class AppTheme {
   const AppTheme._();
 
-  static const primaryColor = Color.fromARGB(255, 2, 63, 41);
+  static const primaryColor = Color.fromARGB(255, 3, 128, 44);
   static const onPrimaryColor = Color(0xFF032014);
   static const backgroundColor = Color(0xFF060B14);
 
   static const colors = AppColors(
-    action: Color.fromARGB(255, 11, 99, 40),
+    action: Color.fromARGB(255, 3, 128, 44),
     onAction: Color.fromARGB(255, 252, 252, 252),
+    selection: Color.fromARGB(255, 13, 168, 73),
+    onSelection: Color(0xFF031A22),
     mutedIcon: Color.fromARGB(255, 11, 99, 40),
     glassFill: Color(0x14FFFFFF),
     glassBorder: Color(0x24FFFFFF),
@@ -50,6 +52,8 @@ class AppColors extends ThemeExtension<AppColors> {
   const AppColors({
     required this.action,
     required this.onAction,
+    required this.selection,
+    required this.onSelection,
     required this.mutedIcon,
     required this.glassFill,
     required this.glassBorder,
@@ -64,6 +68,8 @@ class AppColors extends ThemeExtension<AppColors> {
 
   final Color action;
   final Color onAction;
+  final Color selection;
+  final Color onSelection;
   final Color mutedIcon;
   final Color glassFill;
   final Color glassBorder;
@@ -79,6 +85,8 @@ class AppColors extends ThemeExtension<AppColors> {
   AppColors copyWith({
     Color? action,
     Color? onAction,
+    Color? selection,
+    Color? onSelection,
     Color? mutedIcon,
     Color? glassFill,
     Color? glassBorder,
@@ -93,6 +101,8 @@ class AppColors extends ThemeExtension<AppColors> {
     return AppColors(
       action: action ?? this.action,
       onAction: onAction ?? this.onAction,
+      selection: selection ?? this.selection,
+      onSelection: onSelection ?? this.onSelection,
       mutedIcon: mutedIcon ?? this.mutedIcon,
       glassFill: glassFill ?? this.glassFill,
       glassBorder: glassBorder ?? this.glassBorder,
@@ -115,6 +125,8 @@ class AppColors extends ThemeExtension<AppColors> {
     return AppColors(
       action: Color.lerp(action, other.action, t)!,
       onAction: Color.lerp(onAction, other.onAction, t)!,
+      selection: Color.lerp(selection, other.selection, t)!,
+      onSelection: Color.lerp(onSelection, other.onSelection, t)!,
       mutedIcon: Color.lerp(mutedIcon, other.mutedIcon, t)!,
       glassFill: Color.lerp(glassFill, other.glassFill, t)!,
       glassBorder: Color.lerp(glassBorder, other.glassBorder, t)!,

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:stadium/src/screens/main_navigation_page.dart';
+import 'package:stadium/src/screens/auth_gate.dart';
 import 'package:stadium/src/theme/app_theme.dart';
 
 class StadiumBookingApp extends StatelessWidget {
@@ -11,7 +11,7 @@ class StadiumBookingApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'Stadium Booking',
       theme: AppTheme.dark(),
-      home: const MainNavigationPage(),
+      home: const AuthGate(),
     );
   }
 }
