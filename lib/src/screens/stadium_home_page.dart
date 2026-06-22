@@ -8,6 +8,7 @@ import 'package:stadium/src/models/stadium.dart';
 import 'package:stadium/src/screens/stadium_booking_page.dart';
 import 'package:stadium/src/services/booking_service.dart';
 import 'package:stadium/src/services/favorite_service.dart';
+import 'package:stadium/src/services/manager_stadium_service.dart';
 import 'package:stadium/src/theme/app_theme.dart';
 import 'package:stadium/src/widgets/app_notification.dart';
 
@@ -35,7 +36,9 @@ class StadiumHomePage extends StatefulWidget {
 
 class _StadiumHomePageState extends State<StadiumHomePage> {
   late Future<Set<String>> _favoriteIdsFuture;
+  late Future<List<Stadium>> _stadiumsFuture;
   final TextEditingController _searchController = TextEditingController();
+  List<Stadium> _allStadiums = [];
   Set<String> _favoriteIds = {};
   final Set<String> _updatingFavoriteIds = {};
   String _searchQuery = '';
@@ -46,8 +49,21 @@ class _StadiumHomePageState extends State<StadiumHomePage> {
   @override
   void initState() {
     super.initState();
+    _stadiumsFuture = _loadStadiums();
     _favoriteIdsFuture = _loadFavoriteIds();
     widget.favoritesVersion?.addListener(_handleFavoritesChanged);
+  }
+
+  Future<List<Stadium>> _loadStadiums() async {
+    try {
+      final dynamicStadiums = await managerStadiumService.listPublicStadiums();
+      _allStadiums = dynamicStadiums;
+      return dynamicStadiums;
+    } catch (error) {
+      print('Error loading stadiums: $error');
+      _allStadiums = [];
+      return [];
+    }
   }
 
   @override
@@ -82,12 +98,14 @@ class _StadiumHomePageState extends State<StadiumHomePage> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    final filteredStadiums = _filteredStadiums;
     final isSearching = _searchQuery.trim().isNotEmpty;
 
-    return FutureBuilder<Set<String>>(
-      future: _favoriteIdsFuture,
+    return FutureBuilder<List<Stadium>>(
+      future: _stadiumsFuture,
       builder: (context, snapshot) {
+        final stadiumList = snapshot.data ?? _allStadiums;
+        final filteredStadiums = _filteredStadiums(stadiumList);
+
         return Scaffold(
           body: Stack(
             children: [
@@ -118,25 +136,27 @@ class _StadiumHomePageState extends State<StadiumHomePage> {
                               ),
                               const SizedBox(height: 26),
                               if (!isSearching) ...[
-                                const _SectionHeader(
-                                  title: 'Featured stadium',
-                                  action: 'View all',
-                                ),
-                                const SizedBox(height: 14),
-                                _FeaturedStadium(
-                                  stadium: stadiums.first,
-                                  gradient: colors.stadiumGradients.first,
-                                  isHearted: _isHearted(stadiums.first),
-                                  isUpdating: _isUpdating(stadiums.first),
-                                  onHeart: () =>
-                                      _toggleFavorite(stadiums.first),
-                                  onBook: () => _openBookingPage(
-                                    context,
-                                    stadiums.first,
-                                    colors.stadiumGradients.first,
+                                if (stadiumList.isNotEmpty) ...[
+                                  const _SectionHeader(
+                                    title: 'Featured stadium',
+                                    action: 'View all',
                                   ),
-                                ),
-                                const SizedBox(height: 28),
+                                  const SizedBox(height: 14),
+                                  _FeaturedStadium(
+                                    stadium: stadiumList.first,
+                                    gradient: colors.stadiumGradients.first,
+                                    isHearted: _isHearted(stadiumList.first),
+                                    isUpdating: _isUpdating(stadiumList.first),
+                                    onHeart: () =>
+                                        _toggleFavorite(stadiumList.first),
+                                    onBook: () => _openBookingPage(
+                                      context,
+                                      stadiumList.first,
+                                      colors.stadiumGradients.first,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 28),
+                                ],
                               ],
                               _SectionHeader(
                                 title: isSearching
@@ -153,7 +173,16 @@ class _StadiumHomePageState extends State<StadiumHomePage> {
                       ),
                       SliverPadding(
                         padding: const EdgeInsets.fromLTRB(20, 0, 20, 110),
-                        sliver: filteredStadiums.isEmpty
+                        sliver: snapshot.connectionState != ConnectionState.done
+                            ? const SliverToBoxAdapter(
+                                child: Center(
+                                  child: Padding(
+                                    padding: EdgeInsets.only(top: 24),
+                                    child: CircularProgressIndicator(),
+                                  ),
+                                ),
+                              )
+                            : filteredStadiums.isEmpty
                             ? SliverToBoxAdapter(
                                 child: _EmptySearchResult(query: _searchQuery),
                               )
@@ -197,11 +226,11 @@ class _StadiumHomePageState extends State<StadiumHomePage> {
   bool _isUpdating(Stadium stadium) =>
       _updatingFavoriteIds.contains(stadium.id);
 
-  List<Stadium> get _filteredStadiums {
+  List<Stadium> _filteredStadiums(List<Stadium> source) {
     final query = _searchQuery.trim().toLowerCase();
-    if (query.isEmpty) return stadiums;
+    if (query.isEmpty) return source;
 
-    return stadiums.where((stadium) {
+    return source.where((stadium) {
       return stadium.name.toLowerCase().contains(query) ||
           stadium.location.toLowerCase().contains(query) ||
           stadium.available.toLowerCase().contains(query) ||

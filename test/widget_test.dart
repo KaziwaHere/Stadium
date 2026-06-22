@@ -163,6 +163,8 @@ class _FakeBookingsRepository implements BookingsRepository {
     : _bookings = [
         StadiumBooking(
           rowId: 'booking_1',
+          userId: 'test_user_id',
+          userName: 'Test User',
           stadiumId: stadiums.first.id,
           slotId: 'emerald_arena-jun_13-700pm',
           stadiumName: stadiums.first.name,
@@ -195,12 +197,15 @@ class _FakeBookingsRepository implements BookingsRepository {
   @override
   Future<StadiumBooking> createBooking({
     required String userId,
+    required String userName,
     required Stadium stadium,
     required BookingDay day,
     required BookingSlot slot,
   }) async {
     final booking = StadiumBooking(
       rowId: 'booking_${_bookings.length + 1}',
+      userId: userId,
+      userName: userName,
       stadiumId: stadium.id,
       slotId: '${stadium.id}-${day.date}-${slot.time}',
       stadiumName: stadium.name,

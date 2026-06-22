@@ -49,26 +49,8 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
 
   @override
   Widget build(BuildContext context) {
-    final pages = [
-      StadiumHomePage(
-        user: widget.user,
-        bookingsRepository: widget.bookingsRepository,
-        favoritesRepository: widget.favoritesRepository,
-        favoritesVersion: _favoritesVersion,
-        onBookingsChanged: _notifyBookingsChanged,
-        onFavoritesChanged: _notifyFavoritesChanged,
-      ),
-      BookingsPage(
-        user: widget.user,
-        bookingsRepository: widget.bookingsRepository,
-        favoritesRepository: widget.favoritesRepository,
-        bookingsVersion: _bookingsVersion,
-        favoritesVersion: _favoritesVersion,
-        onBookingsChanged: _notifyBookingsChanged,
-        onFavoritesChanged: _notifyFavoritesChanged,
-      ),
-      ProfilePage(user: widget.user, onSignedOut: widget.onSignedOut),
-    ];
+    final destinations = _destinations;
+    final pages = destinations.map((destination) => destination.page).toList();
 
     return Scaffold(
       extendBody: true,
@@ -81,6 +63,7 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
             bottom: 18,
             child: _GlassBottomNavigationBar(
               selectedIndex: _selectedIndex,
+              destinations: destinations,
               onDestinationSelected: (index) {
                 if (index == _selectedIndex) return;
 
@@ -92,6 +75,53 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
       ),
     );
   }
+
+  List<_NavigationDestination> get _destinations {
+    return [
+      _NavigationDestination(
+        icon: Icons.home_rounded,
+        label: 'Home',
+        page: StadiumHomePage(
+          user: widget.user,
+          bookingsRepository: widget.bookingsRepository,
+          favoritesRepository: widget.favoritesRepository,
+          favoritesVersion: _favoritesVersion,
+          onBookingsChanged: _notifyBookingsChanged,
+          onFavoritesChanged: _notifyFavoritesChanged,
+        ),
+      ),
+      _NavigationDestination(
+        icon: Icons.confirmation_number_rounded,
+        label: 'Bookings',
+        page: BookingsPage(
+          user: widget.user,
+          bookingsRepository: widget.bookingsRepository,
+          favoritesRepository: widget.favoritesRepository,
+          bookingsVersion: _bookingsVersion,
+          favoritesVersion: _favoritesVersion,
+          onBookingsChanged: _notifyBookingsChanged,
+          onFavoritesChanged: _notifyFavoritesChanged,
+        ),
+      ),
+      _NavigationDestination(
+        icon: Icons.person_rounded,
+        label: 'Profile',
+        page: ProfilePage(user: widget.user, onSignedOut: widget.onSignedOut),
+      ),
+    ];
+  }
+}
+
+class _NavigationDestination {
+  const _NavigationDestination({
+    required this.icon,
+    required this.label,
+    required this.page,
+  });
+
+  final IconData icon;
+  final String label;
+  final Widget page;
 }
 
 class _AnimatedTabView extends StatelessWidget {
@@ -152,10 +182,12 @@ class _AnimatedTabPage extends StatelessWidget {
 class _GlassBottomNavigationBar extends StatelessWidget {
   const _GlassBottomNavigationBar({
     required this.selectedIndex,
+    required this.destinations,
     required this.onDestinationSelected,
   });
 
   final int selectedIndex;
+  final List<_NavigationDestination> destinations;
   final ValueChanged<int> onDestinationSelected;
 
   @override
@@ -184,10 +216,9 @@ class _GlassBottomNavigationBar extends StatelessWidget {
             ),
             child: LayoutBuilder(
               builder: (context, constraints) {
-                const itemCount = 3;
                 const horizontalMargin = 5.0;
                 const verticalMargin = 6.0;
-                final itemWidth = constraints.maxWidth / itemCount;
+                final itemWidth = constraints.maxWidth / destinations.length;
 
                 return Stack(
                   children: [
@@ -207,24 +238,17 @@ class _GlassBottomNavigationBar extends StatelessWidget {
                     ),
                     Row(
                       children: [
-                        _NavItem(
-                          icon: Icons.home_rounded,
-                          label: 'Home',
-                          isSelected: selectedIndex == 0,
-                          onTap: () => onDestinationSelected(0),
-                        ),
-                        _NavItem(
-                          icon: Icons.confirmation_number_rounded,
-                          label: 'Bookings',
-                          isSelected: selectedIndex == 1,
-                          onTap: () => onDestinationSelected(1),
-                        ),
-                        _NavItem(
-                          icon: Icons.person_rounded,
-                          label: 'Profile',
-                          isSelected: selectedIndex == 2,
-                          onTap: () => onDestinationSelected(2),
-                        ),
+                        for (
+                          var index = 0;
+                          index < destinations.length;
+                          index++
+                        )
+                          _NavItem(
+                            icon: destinations[index].icon,
+                            label: destinations[index].label,
+                            isSelected: selectedIndex == index,
+                            onTap: () => onDestinationSelected(index),
+                          ),
                       ],
                     ),
                   ],

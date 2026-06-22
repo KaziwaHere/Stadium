@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:appwrite/appwrite.dart';
 import 'package:appwrite/models.dart' as models;
 import 'package:flutter/material.dart';
@@ -11,6 +13,7 @@ abstract class BookingsRepository {
 
   Future<StadiumBooking> createBooking({
     required String userId,
+    required String userName,
     required Stadium stadium,
     required BookingDay day,
     required BookingSlot slot,
@@ -20,17 +23,21 @@ abstract class BookingsRepository {
 }
 
 class BookingService implements BookingsRepository {
-  BookingService(this._tables);
+  BookingService(this._tables, this._functions);
 
+  static const functionId = 'admin-users';
   static const databaseId = 'stadium_booking';
   static const tableId = 'bookings';
   static const bookedSlotsTableId = 'booked_slots';
   static const activeStatus = 'active';
+  static const pendingStatus = 'pending';
+  static const deniedStatus = 'denied';
   static const cancelledStatus = 'cancelled';
   static const _bookingsCacheTtl = Duration(minutes: 3);
   static const _availabilityCacheTtl = Duration(seconds: 45);
 
   final TablesDB _tables;
+  final Functions _functions;
   final Map<String, _CacheEntry<List<StadiumBooking>>> _bookingsCache = {};
   final Map<String, Future<List<StadiumBooking>>> _bookingsRequests = {};
   final Map<String, _CacheEntry<Set<String>>> _availabilityCache = {};
@@ -62,7 +69,7 @@ class BookingService implements BookingsRepository {
       tableId: tableId,
       queries: [
         Query.equal('userId', userId),
-        Query.equal('status', activeStatus),
+        Query.equal('status', [activeStatus, pendingStatus]),
         Query.orderAsc('dayDate'),
         Query.orderAsc('slotTime'),
       ],
@@ -111,55 +118,34 @@ class BookingService implements BookingsRepository {
   @override
   Future<StadiumBooking> createBooking({
     required String userId,
+    required String userName,
     required Stadium stadium,
     required BookingDay day,
     required BookingSlot slot,
   }) async {
     final slotId = _slotId(stadium.id, day.date, slot.time);
 
-    await _createBookedSlotMarker(
-      userId: userId,
-      slotId: slotId,
-      stadiumId: stadium.id,
-      dayDate: day.date,
-      slotTime: slot.time,
-    );
-
-    try {
-      final row = await _tables.createRow(
-        databaseId: databaseId,
-        tableId: tableId,
-        rowId: ID.unique(),
-        data: {
-          'userId': userId,
-          'stadiumId': stadium.id,
-          'slotId': slotId,
-          'stadiumName': stadium.name,
-          'location': stadium.location,
-          'rating': stadium.rating,
-          'price': stadium.price,
-          'icon': stadium.iconKey,
-          'dayLabel': day.label,
-          'dayDate': day.date,
-          'slotTime': slot.time,
-          'status': activeStatus,
-          'createdAt': DateTime.now().toUtc().toIso8601String(),
-        },
-        permissions: [
-          Permission.read(Role.user(userId)),
-          Permission.update(Role.user(userId)),
-          Permission.delete(Role.user(userId)),
-        ],
-      );
-
-      final booking = StadiumBooking.fromRow(row);
-      _appendCachedBooking(userId, booking);
+    final payload = await _executeBookingFunction({
+      'action': 'createBooking',
+      'userId': userId,
+      'userName': userName,
+      'stadiumId': stadium.id,
+      'slotId': slotId,
+      'stadiumName': stadium.name,
+      'location': stadium.location,
+      'rating': stadium.rating,
+      'price': stadium.price,
+      'icon': stadium.iconKey,
+      'dayLabel': day.label,
+      'dayDate': day.date,
+      'slotTime': slot.time,
+    });
+    final booking = StadiumBooking.fromMap(_bookingPayload(payload));
+    _appendCachedBooking(userId, booking);
+    if (booking.status == activeStatus) {
       _addCachedBookedSlot(stadium.id, booking.slotKey);
-      return booking;
-    } catch (_) {
-      await _deleteBookedSlotMarker(slotId);
-      rethrow;
     }
+    return booking;
   }
 
   @override
@@ -174,39 +160,6 @@ class BookingService implements BookingsRepository {
     await _deleteBookedSlotMarker(booking.slotId);
     _removeCachedBooking(booking);
     _removeCachedBookedSlot(booking.stadiumId, booking.slotKey);
-  }
-
-  Future<void> _createBookedSlotMarker({
-    required String userId,
-    required String slotId,
-    required String stadiumId,
-    required String dayDate,
-    required String slotTime,
-  }) async {
-    try {
-      await _tables.createRow(
-        databaseId: databaseId,
-        tableId: bookedSlotsTableId,
-        rowId: slotId,
-        data: {
-          'stadiumId': stadiumId,
-          'dayDate': dayDate,
-          'slotTime': slotTime,
-          'status': activeStatus,
-        },
-        permissions: [
-          Permission.read(Role.users()),
-          Permission.update(Role.user(userId)),
-          Permission.delete(Role.user(userId)),
-        ],
-      );
-    } on AppwriteException catch (error) {
-      if (error.code == 409) {
-        throw const BookingSlotUnavailableException();
-      }
-
-      rethrow;
-    }
   }
 
   Future<void> _deleteBookedSlotMarker(String slotId) async {
@@ -229,7 +182,18 @@ class BookingService implements BookingsRepository {
         .toLowerCase()
         .replaceAll(' ', '')
         .replaceAll(':', '');
-    return '$stadiumId-$normalizedDate-$normalizedTime';
+    final raw = '$stadiumId|$normalizedDate|$normalizedTime';
+    return 'slot_${_shortHash(raw)}';
+  }
+
+  String _shortHash(String value) {
+    var hash = 0xcbf29ce484222325;
+    for (final codeUnit in value.codeUnits) {
+      hash ^= codeUnit;
+      hash = (hash * 0x100000001b3) & 0xffffffffffffffff;
+    }
+
+    return hash.toRadixString(16).padLeft(16, '0');
   }
 
   List<StadiumBooking>? _freshCachedBookings(String userId) {
@@ -281,9 +245,38 @@ class BookingService implements BookingsRepository {
   }
 
   int _compareBookings(StadiumBooking a, StadiumBooking b) {
+    if (a.status != b.status) {
+      if (a.status == pendingStatus) return -1;
+      if (b.status == pendingStatus) return 1;
+    }
+
     final dayComparison = a.dayDate.compareTo(b.dayDate);
     if (dayComparison != 0) return dayComparison;
     return a.slotTime.compareTo(b.slotTime);
+  }
+
+  Future<Map<String, dynamic>> _executeBookingFunction(
+    Map<String, dynamic> payload,
+  ) async {
+    final execution = await _functions.createExecution(
+      functionId: functionId,
+      body: jsonEncode(payload),
+      xasync: false,
+    );
+
+    final decoded = _decodeFunctionResponse(execution.responseBody);
+    if (execution.responseStatusCode == 409) {
+      throw const BookingSlotUnavailableException();
+    }
+
+    if (execution.responseStatusCode < 200 ||
+        execution.responseStatusCode >= 300) {
+      throw BookingServiceException(
+        _executionFailureMessage(execution, decoded),
+      );
+    }
+
+    return decoded;
   }
 }
 
@@ -334,9 +327,161 @@ class BookedSlot {
   String get slotKey => bookingSlotKey(dayDate, slotTime);
 }
 
+abstract class ManagerBookingRequestsRepository {
+  Future<List<StadiumBooking>> listPendingRequests(String managerId);
+
+  Future<StadiumBooking> acceptRequest({
+    required String managerId,
+    required StadiumBooking request,
+  });
+
+  Future<void> denyRequest({
+    required String managerId,
+    required StadiumBooking request,
+  });
+}
+
+class ManagerBookingRequestsService
+    implements ManagerBookingRequestsRepository {
+  ManagerBookingRequestsService(this._tables, this._functions);
+
+  final TablesDB _tables;
+  final Functions _functions;
+
+  @override
+  Future<List<StadiumBooking>> listPendingRequests(String managerId) async {
+    final rows = await _tables.listRows(
+      databaseId: BookingService.databaseId,
+      tableId: BookingService.tableId,
+      queries: [
+        Query.equal('stadiumId', managerId),
+        Query.equal('status', BookingService.pendingStatus),
+        Query.orderAsc('dayDate'),
+        Query.orderAsc('slotTime'),
+      ],
+    );
+
+    return rows.rows.map(StadiumBooking.fromRow).toList();
+  }
+
+  @override
+  Future<StadiumBooking> acceptRequest({
+    required String managerId,
+    required StadiumBooking request,
+  }) async {
+    if (request.status != BookingService.pendingStatus) {
+      return request;
+    }
+
+    final payload = await _executeBookingFunction({
+      'action': 'acceptBookingRequest',
+      'userId': managerId,
+      'requestId': request.rowId,
+    });
+    return StadiumBooking.fromMap(_bookingPayload(payload));
+  }
+
+  @override
+  Future<void> denyRequest({
+    required String managerId,
+    required StadiumBooking request,
+  }) async {
+    if (request.stadiumId != managerId) {
+      throw StateError('Managers can only update requests for their stadium.');
+    }
+
+    await _executeBookingFunction({
+      'action': 'denyBookingRequest',
+      'userId': managerId,
+      'requestId': request.rowId,
+    });
+  }
+
+  Future<Map<String, dynamic>> _executeBookingFunction(
+    Map<String, dynamic> payload,
+  ) async {
+    final execution = await _functions.createExecution(
+      functionId: BookingService.functionId,
+      body: jsonEncode(payload),
+      xasync: false,
+    );
+
+    final decoded = _decodeFunctionResponse(execution.responseBody);
+    if (execution.responseStatusCode == 409) {
+      throw const BookingSlotUnavailableException();
+    }
+
+    if (execution.responseStatusCode < 200 ||
+        execution.responseStatusCode >= 300) {
+      throw BookingServiceException(
+        _executionFailureMessage(execution, decoded),
+      );
+    }
+
+    return decoded;
+  }
+}
+
+Map<String, dynamic> _decodeFunctionResponse(String responseBody) {
+  if (responseBody.isEmpty) return const {};
+
+  try {
+    final decoded = jsonDecode(responseBody);
+    if (decoded is Map<String, dynamic>) return decoded;
+  } catch (_) {
+    return {'error': responseBody};
+  }
+
+  return {'error': responseBody};
+}
+
+Map<String, dynamic> _bookingPayload(Map<String, dynamic> payload) {
+  final booking = payload['booking'];
+  if (booking is Map<String, dynamic>) return booking;
+
+  throw const BookingServiceException('Booking response is missing data.');
+}
+
+String? _errorMessage(Map<String, dynamic> payload) {
+  final error = payload['error'];
+  return error?.toString();
+}
+
+String _executionFailureMessage(
+  models.Execution execution,
+  Map<String, dynamic> decoded,
+) {
+  final parts = <String>[
+    _errorMessage(decoded) ?? 'Booking action failed.',
+    'status=${execution.status.value}',
+    'http=${execution.responseStatusCode}',
+  ];
+
+  if (execution.responseBody.trim().isNotEmpty) {
+    parts.add('body=${execution.responseBody}');
+  }
+
+  if (execution.errors.trim().isNotEmpty) {
+    parts.add('errors=${execution.errors}');
+  }
+
+  return parts.join(' | ');
+}
+
+class BookingServiceException implements Exception {
+  const BookingServiceException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 class StadiumBooking {
   const StadiumBooking({
     required this.rowId,
+    required this.userId,
+    required this.userName,
     required this.stadiumId,
     required this.slotId,
     required this.stadiumName,
@@ -351,10 +496,14 @@ class StadiumBooking {
   });
 
   factory StadiumBooking.fromRow(models.Row row) {
-    final data = row.data;
+    return StadiumBooking.fromMap({'\$id': row.$id, ...row.data});
+  }
 
+  factory StadiumBooking.fromMap(Map<String, dynamic> data) {
     return StadiumBooking(
-      rowId: row.$id,
+      rowId: data['\$id']?.toString() ?? data['id']?.toString() ?? '',
+      userId: data['userId'].toString(),
+      userName: data['userName']?.toString() ?? 'Unknown User',
       stadiumId: data['stadiumId'].toString(),
       slotId: data['slotId'].toString(),
       stadiumName: data['stadiumName'].toString(),
@@ -370,6 +519,8 @@ class StadiumBooking {
   }
 
   final String rowId;
+  final String userId;
+  final String userName;
   final String stadiumId;
   final String slotId;
   final String stadiumName;
@@ -387,4 +538,9 @@ class StadiumBooking {
   String get slotKey => bookingSlotKey(dayDate, slotTime);
 }
 
-final BookingsRepository bookingService = BookingService(TablesDB(client));
+final BookingsRepository bookingService = BookingService(
+  TablesDB(client),
+  Functions(client),
+);
+final ManagerBookingRequestsRepository managerBookingRequestsService =
+    ManagerBookingRequestsService(TablesDB(client), Functions(client));

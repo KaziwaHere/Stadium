@@ -271,7 +271,8 @@ class _ActiveBookingsSection extends StatelessWidget {
     return FutureBuilder<List<StadiumBooking>>(
       future: bookingsFuture,
       builder: (context, snapshot) {
-        if (snapshot.connectionState != ConnectionState.done) {
+        if (snapshot.connectionState != ConnectionState.done &&
+            !snapshot.hasData) {
           return const _BookingsStatusCard(
             icon: Icons.confirmation_number_rounded,
             title: 'Loading bookings',
@@ -287,30 +288,139 @@ class _ActiveBookingsSection extends StatelessWidget {
           );
         }
 
-        final bookings = snapshot.data ?? const [];
-
-        if (bookings.isEmpty) {
-          return const _BookingsStatusCard(
-            icon: Icons.stadium_rounded,
-            title: 'No active bookings',
-            subtitle: 'Book a stadium from the home page to track it here.',
-          );
-        }
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            for (var index = 0; index < bookings.length; index++) ...[
-              _ActiveBookingCard(
-                booking: bookings[index],
-                index: index,
-                onCancel: () => onCancel(bookings[index]),
-              ),
-              if (index != bookings.length - 1) const SizedBox(height: 12),
-            ],
-          ],
+        return _AnimatedBookingsList(
+          bookings: snapshot.data ?? const [],
+          onCancel: onCancel,
         );
       },
+    );
+  }
+}
+
+class _AnimatedBookingsList extends StatefulWidget {
+  const _AnimatedBookingsList({required this.bookings, required this.onCancel});
+
+  final List<StadiumBooking> bookings;
+  final ValueChanged<StadiumBooking> onCancel;
+
+  @override
+  State<_AnimatedBookingsList> createState() => _AnimatedBookingsListState();
+}
+
+class _AnimatedBookingsListState extends State<_AnimatedBookingsList> {
+  final _listKey = GlobalKey<AnimatedListState>();
+  late final List<StadiumBooking> _bookings = List.of(widget.bookings);
+
+  @override
+  void didUpdateWidget(_AnimatedBookingsList oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _syncBookings();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_bookings.isEmpty) {
+      return const _BookingsStatusCard(
+        icon: Icons.stadium_rounded,
+        title: 'No active bookings',
+        subtitle: 'Book a stadium from the home page to track it here.',
+      );
+    }
+
+    return AnimatedList(
+      key: _listKey,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      initialItemCount: _bookings.length,
+      itemBuilder: (context, index, animation) {
+        return _AnimatedListEntry(
+          animation: animation,
+          child: _BookingListItem(
+            booking: _bookings[index],
+            index: index,
+            onCancel: widget.onCancel,
+          ),
+        );
+      },
+    );
+  }
+
+  void _syncBookings() {
+    final nextBookings = widget.bookings;
+    if (_bookings.isEmpty && nextBookings.isNotEmpty) {
+      setState(() => _bookings.addAll(nextBookings));
+      return;
+    }
+
+    final nextIds = nextBookings.map((booking) => booking.rowId).toSet();
+    var removedAny = false;
+
+    for (var index = _bookings.length - 1; index >= 0; index--) {
+      final booking = _bookings[index];
+      if (nextIds.contains(booking.rowId)) continue;
+
+      final removedIndex = index;
+      final removedBooking = _bookings.removeAt(index);
+      removedAny = true;
+      _listKey.currentState?.removeItem(
+        removedIndex,
+        (context, animation) => _AnimatedListEntry(
+          animation: animation,
+          child: _BookingListItem(
+            booking: removedBooking,
+            index: removedIndex,
+            onCancel: widget.onCancel,
+          ),
+        ),
+        duration: const Duration(milliseconds: 340),
+      );
+    }
+
+    if (removedAny && _bookings.isEmpty) {
+      Future<void>.delayed(const Duration(milliseconds: 340), () {
+        if (mounted) setState(() {});
+      });
+    }
+
+    for (var index = 0; index < nextBookings.length; index++) {
+      final booking = nextBookings[index];
+      final existingIndex = _bookings.indexWhere(
+        (item) => item.rowId == booking.rowId,
+      );
+
+      if (existingIndex == -1) {
+        _bookings.insert(index, booking);
+        _listKey.currentState?.insertItem(
+          index,
+          duration: const Duration(milliseconds: 320),
+        );
+      } else {
+        _bookings[existingIndex] = booking;
+      }
+    }
+  }
+}
+
+class _BookingListItem extends StatelessWidget {
+  const _BookingListItem({
+    required this.booking,
+    required this.index,
+    required this.onCancel,
+  });
+
+  final StadiumBooking booking;
+  final int index;
+  final ValueChanged<StadiumBooking> onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: _ActiveBookingCard(
+        booking: booking,
+        index: index,
+        onCancel: () => onCancel(booking),
+      ),
     );
   }
 }
@@ -459,7 +569,8 @@ class _HeartedStadiumsSection extends StatelessWidget {
     return FutureBuilder<List<FavoriteStadium>>(
       future: favoritesFuture,
       builder: (context, snapshot) {
-        if (snapshot.connectionState != ConnectionState.done) {
+        if (snapshot.connectionState != ConnectionState.done &&
+            !snapshot.hasData) {
           return const _HeartedStatusCard(
             icon: Icons.favorite_rounded,
             title: 'Loading hearted stadiums',
@@ -475,31 +586,181 @@ class _HeartedStadiumsSection extends StatelessWidget {
           );
         }
 
-        final favorites = snapshot.data ?? const [];
-
-        if (favorites.isEmpty) {
-          return const _HeartedStatusCard(
-            icon: Icons.favorite_border_rounded,
-            title: 'No hearted stadiums',
-            subtitle: 'Tap the heart on a stadium to save it here.',
-          );
-        }
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            for (var index = 0; index < favorites.length; index++) ...[
-              _HeartedStadiumCard(
-                stadium: favorites[index],
-                index: index,
-                onTap: () => onOpen(favorites[index], index),
-                onRemove: () => onRemove(favorites[index]),
-              ),
-              if (index != favorites.length - 1) const SizedBox(height: 12),
-            ],
-          ],
+        return _AnimatedHeartedList(
+          favorites: snapshot.data ?? const [],
+          onOpen: onOpen,
+          onRemove: onRemove,
         );
       },
+    );
+  }
+}
+
+class _AnimatedHeartedList extends StatefulWidget {
+  const _AnimatedHeartedList({
+    required this.favorites,
+    required this.onOpen,
+    required this.onRemove,
+  });
+
+  final List<FavoriteStadium> favorites;
+  final void Function(FavoriteStadium favorite, int index) onOpen;
+  final ValueChanged<FavoriteStadium> onRemove;
+
+  @override
+  State<_AnimatedHeartedList> createState() => _AnimatedHeartedListState();
+}
+
+class _AnimatedHeartedListState extends State<_AnimatedHeartedList> {
+  final _listKey = GlobalKey<AnimatedListState>();
+  late final List<FavoriteStadium> _favorites = List.of(widget.favorites);
+
+  @override
+  void didUpdateWidget(_AnimatedHeartedList oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _syncFavorites();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_favorites.isEmpty) {
+      return const _HeartedStatusCard(
+        icon: Icons.favorite_border_rounded,
+        title: 'No hearted stadiums',
+        subtitle: 'Tap the heart on a stadium to save it here.',
+      );
+    }
+
+    return AnimatedList(
+      key: _listKey,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      initialItemCount: _favorites.length,
+      itemBuilder: (context, index, animation) {
+        return _AnimatedListEntry(
+          animation: animation,
+          child: _FavoriteListItem(
+            favorite: _favorites[index],
+            index: index,
+            onOpen: widget.onOpen,
+            onRemove: widget.onRemove,
+          ),
+        );
+      },
+    );
+  }
+
+  void _syncFavorites() {
+    final nextFavorites = widget.favorites;
+    if (_favorites.isEmpty && nextFavorites.isNotEmpty) {
+      setState(() => _favorites.addAll(nextFavorites));
+      return;
+    }
+
+    final nextIds = nextFavorites.map((favorite) => favorite.rowId).toSet();
+    var removedAny = false;
+
+    for (var index = _favorites.length - 1; index >= 0; index--) {
+      final favorite = _favorites[index];
+      if (nextIds.contains(favorite.rowId)) continue;
+
+      final removedIndex = index;
+      final removedFavorite = _favorites.removeAt(index);
+      removedAny = true;
+      _listKey.currentState?.removeItem(
+        removedIndex,
+        (context, animation) => _AnimatedListEntry(
+          animation: animation,
+          child: _FavoriteListItem(
+            favorite: removedFavorite,
+            index: removedIndex,
+            onOpen: widget.onOpen,
+            onRemove: widget.onRemove,
+          ),
+        ),
+        duration: const Duration(milliseconds: 340),
+      );
+    }
+
+    if (removedAny && _favorites.isEmpty) {
+      Future<void>.delayed(const Duration(milliseconds: 340), () {
+        if (mounted) setState(() {});
+      });
+    }
+
+    for (var index = 0; index < nextFavorites.length; index++) {
+      final favorite = nextFavorites[index];
+      final existingIndex = _favorites.indexWhere(
+        (item) => item.rowId == favorite.rowId,
+      );
+
+      if (existingIndex == -1) {
+        _favorites.insert(index, favorite);
+        _listKey.currentState?.insertItem(
+          index,
+          duration: const Duration(milliseconds: 320),
+        );
+      } else {
+        _favorites[existingIndex] = favorite;
+      }
+    }
+  }
+}
+
+class _FavoriteListItem extends StatelessWidget {
+  const _FavoriteListItem({
+    required this.favorite,
+    required this.index,
+    required this.onOpen,
+    required this.onRemove,
+  });
+
+  final FavoriteStadium favorite;
+  final int index;
+  final void Function(FavoriteStadium favorite, int index) onOpen;
+  final ValueChanged<FavoriteStadium> onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: _HeartedStadiumCard(
+        stadium: favorite,
+        index: index,
+        onTap: () => onOpen(favorite, index),
+        onRemove: () => onRemove(favorite),
+      ),
+    );
+  }
+}
+
+class _AnimatedListEntry extends StatelessWidget {
+  const _AnimatedListEntry({required this.animation, required this.child});
+
+  final Animation<double> animation;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final curved = CurvedAnimation(
+      parent: animation,
+      curve: Curves.easeOutCubic,
+      reverseCurve: Curves.easeInCubic,
+    );
+
+    return SizeTransition(
+      sizeFactor: curved,
+      axisAlignment: -1,
+      child: FadeTransition(
+        opacity: curved,
+        child: SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(.04, 0),
+            end: Offset.zero,
+          ).animate(curved),
+          child: child,
+        ),
+      ),
     );
   }
 }

@@ -83,7 +83,6 @@ class _AuthPageState extends State<AuthPage> with WidgetsBindingObserver {
                       _AuthPanel(
                         child: Form(
                           key: _formKey,
-                          autovalidateMode: AutovalidateMode.onUserInteraction,
                           child: Column(
                             children: [
                               _ModeSwitch(
@@ -295,7 +294,6 @@ class _AuthPageState extends State<AuthPage> with WidgetsBindingObserver {
       _formError = null;
       _formMessage = null;
     });
-    _formKey.currentState?.validate();
   }
 
   Future<void> _submit() async {
@@ -635,7 +633,7 @@ class _AuthTextFieldState extends State<_AuthTextField> {
       validator: widget.validator,
       obscureText: widget.obscureText,
       onFieldSubmitted: widget.onSubmitted,
-      onChanged: widget.onChanged,
+      onChanged: _handleChanged,
       style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
       decoration: InputDecoration(
         labelText: widget.label,
@@ -664,6 +662,15 @@ class _AuthTextFieldState extends State<_AuthTextField> {
     if (_focusNode.hasFocus) return;
 
     _fieldKey.currentState?.validate();
+  }
+
+  void _handleChanged(String value) {
+    widget.onChanged?.call(value);
+
+    final field = _fieldKey.currentState;
+    if (field == null || !field.hasError) return;
+
+    field.validate();
   }
 }
 

@@ -1,5 +1,6 @@
 import 'dart:ui';
 
+import 'package:appwrite/appwrite.dart';
 import 'package:appwrite/models.dart' as models;
 import 'package:flutter/material.dart';
 import 'package:stadium/src/models/stadium.dart';
@@ -291,8 +292,11 @@ class _StadiumBookingPageState extends State<StadiumBookingPage> {
     setState(() => _isBooking = true);
 
     try {
-      await _bookingsRepository.createBooking(
+      final booking = await _bookingsRepository.createBooking(
         userId: widget.user.$id,
+        userName: widget.user.name.trim().isEmpty
+            ? 'User ${widget.user.$id.substring(0, 8)}'
+            : widget.user.name,
         stadium: widget.stadium,
         day: day,
         slot: slot,
@@ -301,16 +305,21 @@ class _StadiumBookingPageState extends State<StadiumBookingPage> {
       if (!mounted) return;
 
       setState(() {
-        _bookedSlotKeys.add(_slotKey(day, slot));
+        if (booking.status == BookingService.activeStatus) {
+          _bookedSlotKeys.add(_slotKey(day, slot));
+        }
         _selectedSlot = null;
       });
       widget.onBookingCreated?.call();
 
       showAppNotification(
         context,
-        title: 'Stadium booked',
-        message:
-            '${widget.stadium.name} is yours ${day.label}, ${day.date} at ${slot.time}.',
+        title: booking.status == BookingService.pendingStatus
+            ? 'Request sent'
+            : 'Stadium booked',
+        message: booking.status == BookingService.pendingStatus
+            ? 'Your booking request was sent. The manager will accept or deny it soon.'
+            : '${widget.stadium.name} is yours ${day.label}, ${day.date} at ${slot.time}.',
         type: AppNotificationType.success,
       );
     } on BookingSlotUnavailableException {
@@ -327,13 +336,27 @@ class _StadiumBookingPageState extends State<StadiumBookingPage> {
         message: 'That time was just booked.',
         type: AppNotificationType.warning,
       );
-    } catch (error) {
+    } catch (error, stackTrace) {
       if (!mounted) return;
+
+      print('=== BOOKING ERROR ===');
+      print('Error: $error');
+      print('Stack trace: $stackTrace');
+      if (error is AppwriteException) {
+        print('Appwrite error code: ${error.code}');
+        print('Appwrite error message: ${error.message}');
+        print('Appwrite error type: ${error.type}');
+      }
+      print('===================');
+
+      final message = error is AppwriteException
+          ? error.message ?? error.toString()
+          : error.toString();
 
       showAppNotification(
         context,
         title: 'Booking failed',
-        message: 'Could not book ${widget.stadium.name}. Try again.',
+        message: message,
         type: AppNotificationType.error,
       );
     } finally {

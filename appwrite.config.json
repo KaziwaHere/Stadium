@@ -1,0 +1,557 @@
+{
+    "organizationId": "6a3195f700344df99e2e",
+    "projectId": "6a319781003dd693dfd5",
+    "projectName": "Stadium",
+    "endpoint": "https://fra.cloud.appwrite.io/v1",
+    "settings": {
+        "services": {
+            "account": true,
+            "avatars": true,
+            "databases": true,
+            "locale": true,
+            "health": true,
+            "storage": true,
+            "teams": true,
+            "users": true,
+            "sites": true,
+            "functions": true,
+            "graphql": true,
+            "messaging": true
+        },
+        "protocols": {
+            "rest": true,
+            "graphql": true,
+            "websocket": true
+        },
+        "auth": {
+            "methods": {
+                "jwt": true,
+                "phone": true,
+                "invites": true,
+                "anonymous": true,
+                "email-otp": true,
+                "magic-url": true,
+                "email-password": true
+            },
+            "security": {
+                "duration": 31536000,
+                "limit": 0,
+                "sessionsLimit": 0,
+                "passwordHistory": 0,
+                "passwordDictionary": false,
+                "personalDataCheck": false,
+                "sessionAlerts": false,
+                "mockNumbers": []
+            }
+        }
+    },
+    "functions": [
+        {
+            "$id": "admin-users",
+            "name": "admin-users",
+            "enabled": true,
+            "logging": true,
+            "runtime": "node-22",
+            "buildSpecification": "s-0.5vcpu-512mb",
+            "runtimeSpecification": "s-0.5vcpu-512mb",
+            "deploymentRetention": 7,
+            "execute": ["users"],
+            "scopes": ["users.read", "users.write", "databases.read", "databases.write", "rows.read", "rows.write"],
+            "events": [],
+            "schedule": "",
+            "timeout": 15,
+            "entrypoint": "src/main.js",
+            "commands": "npm install",
+            "ignore": "node_modules\n.tmp",
+            "path": "appwrite_functions/admin-users"
+        }
+    ],
+    "tablesDB": [
+        {
+            "$id": "stadium_booking",
+            "name": "Stadium Booking",
+            "enabled": true
+        }
+    ],
+    "tables": [
+        {
+            "$id": "stadiums",
+            "$permissions": [
+                "read(\"any\")",
+                "create(\"users\")"
+            ],
+            "databaseId": "stadium_booking",
+            "name": "Stadiums",
+            "enabled": true,
+            "rowSecurity": true,
+            "columns": [
+                {
+                    "key": "name",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 128,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "location",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 128,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "rating",
+                    "type": "double",
+                    "required": true,
+                    "array": false,
+                    "default": null,
+                    "min": -1.7976931348623157e+308,
+                    "max": 1.7976931348623157e+308
+                },
+                {
+                    "key": "price",
+                    "type": "integer",
+                    "required": true,
+                    "array": false,
+                    "default": null,
+                    "min": -9223372036854775808,
+                    "max": 9223372036854775807
+                },
+                {
+                    "key": "available",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 64,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "icon",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 64,
+                    "default": null,
+                    "encrypt": false
+                }
+            ],
+            "indexes": []
+        },
+        {
+            "$id": "slots",
+            "$permissions": [
+                "read(\"any\")"
+            ],
+            "databaseId": "stadium_booking",
+            "name": "Slots",
+            "enabled": true,
+            "rowSecurity": false,
+            "columns": [
+                {
+                    "key": "stadiumId",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 36,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "date",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 32,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "label",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 32,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "time",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 32,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "isBooked",
+                    "type": "boolean",
+                    "required": true,
+                    "array": false,
+                    "default": null
+                }
+            ],
+            "indexes": [
+                {
+                    "key": "stadiumId_index",
+                    "type": "key",
+                    "status": "available",
+                    "columns": [
+                        "stadiumId"
+                    ],
+                    "orders": []
+                }
+            ]
+        },
+        {
+            "$id": "bookings",
+            "$permissions": [
+                "create(\"users\")"
+            ],
+            "databaseId": "stadium_booking",
+            "name": "Bookings",
+            "enabled": true,
+            "rowSecurity": true,
+            "columns": [
+                {
+                    "key": "userId",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 36,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "stadiumId",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 36,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "slotId",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 36,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "status",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 32,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "createdAt",
+                    "type": "datetime",
+                    "required": true,
+                    "array": false,
+                    "default": null,
+                    "format": ""
+                },
+                {
+                    "key": "stadiumName",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 128,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "location",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 128,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "rating",
+                    "type": "double",
+                    "required": true,
+                    "array": false,
+                    "default": null,
+                    "min": -1.7976931348623157e+308,
+                    "max": 1.7976931348623157e+308
+                },
+                {
+                    "key": "price",
+                    "type": "integer",
+                    "required": true,
+                    "array": false,
+                    "default": null,
+                    "min": -9223372036854775808,
+                    "max": 9223372036854775807
+                },
+                {
+                    "key": "icon",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 64,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "dayLabel",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 32,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "dayDate",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 32,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "slotTime",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 32,
+                    "default": null,
+                    "encrypt": false
+                }
+            ],
+            "indexes": [
+                {
+                    "key": "userId_index",
+                    "type": "key",
+                    "status": "available",
+                    "columns": [
+                        "userId"
+                    ],
+                    "orders": []
+                },
+                {
+                    "key": "slotId_index",
+                    "type": "key",
+                    "status": "available",
+                    "columns": [
+                        "slotId"
+                    ],
+                    "orders": []
+                },
+                {
+                    "key": "status_index",
+                    "type": "key",
+                    "status": "available",
+                    "columns": [
+                        "status"
+                    ],
+                    "orders": []
+                },
+                {
+                    "key": "stadium_slot_index",
+                    "type": "key",
+                    "status": "available",
+                    "columns": [
+                        "stadiumId",
+                        "dayDate",
+                        "slotTime",
+                        "status"
+                    ],
+                    "orders": []
+                }
+            ]
+        },
+        {
+            "$id": "favorites",
+            "$permissions": [
+                "create(\"users\")"
+            ],
+            "databaseId": "stadium_booking",
+            "name": "Favorites",
+            "enabled": true,
+            "rowSecurity": true,
+            "columns": [
+                {
+                    "key": "userId",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 36,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "stadiumId",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 64,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "name",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 128,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "location",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 128,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "rating",
+                    "type": "double",
+                    "required": true,
+                    "array": false,
+                    "default": null,
+                    "min": -1.7976931348623157e+308,
+                    "max": 1.7976931348623157e+308
+                },
+                {
+                    "key": "price",
+                    "type": "integer",
+                    "required": true,
+                    "array": false,
+                    "default": null,
+                    "min": -9223372036854775808,
+                    "max": 9223372036854775807
+                },
+                {
+                    "key": "available",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 64,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "icon",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 64,
+                    "default": null,
+                    "encrypt": false
+                }
+            ],
+            "indexes": [
+                {
+                    "key": "userId_index",
+                    "type": "key",
+                    "status": "available",
+                    "columns": [
+                        "userId"
+                    ],
+                    "orders": []
+                },
+                {
+                    "key": "stadiumId_index",
+                    "type": "key",
+                    "status": "available",
+                    "columns": [
+                        "stadiumId"
+                    ],
+                    "orders": []
+                }
+            ]
+        },
+        {
+            "$id": "booked_slots",
+            "$permissions": [
+                "create(\"users\")"
+            ],
+            "databaseId": "stadium_booking",
+            "name": "Booked Slots",
+            "enabled": true,
+            "rowSecurity": true,
+            "columns": [
+                {
+                    "key": "stadiumId",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 36,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "dayDate",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 32,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "slotTime",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 32,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "status",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 32,
+                    "default": null,
+                    "encrypt": false
+                }
+            ],
+            "indexes": [
+                {
+                    "key": "stadium_status_index",
+                    "type": "key",
+                    "status": "available",
+                    "columns": [
+                        "stadiumId",
+                        "status"
+                    ],
+                    "orders": []
+                },
+                {
+                    "key": "slot_status_index",
+                    "type": "key",
+                    "status": "available",
+                    "columns": [
+                        "stadiumId",
+                        "dayDate",
+                        "slotTime",
+                        "status"
+                    ],
+                    "orders": []
+                }
+            ]
+        }
+    ]
+}

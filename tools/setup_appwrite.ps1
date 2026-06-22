@@ -11,10 +11,10 @@ if ([string]::IsNullOrWhiteSpace($env:APPWRITE_API_KEY)) {
 }
 
 $Headers = @{
-    "Content-Type"                 = "application/json"
-    "X-Appwrite-Response-Format"   = "1.9.5"
-    "X-Appwrite-Project"           = $ProjectId
-    "X-Appwrite-Key"               = $env:APPWRITE_API_KEY
+    "Content-Type"               = "application/json"
+    "X-Appwrite-Response-Format" = "1.9.5"
+    "X-Appwrite-Project"         = $ProjectId
+    "X-Appwrite-Key"             = $env:APPWRITE_API_KEY
 }
 
 function Invoke-Appwrite {
@@ -233,9 +233,9 @@ Ensure-Database -Id $DatabaseId -Name "Stadium Booking"
 
 Ensure-Collection -Id "stadiums" -Name "Stadiums" -Permissions @('read("any")') -DocumentSecurity $false
 Ensure-Collection -Id "slots" -Name "Slots" -Permissions @('read("any")') -DocumentSecurity $false
-Ensure-Collection -Id "booked_slots" -Name "Booked Slots" -Permissions @('create("users")') -DocumentSecurity $true
-Ensure-Collection -Id "bookings" -Name "Bookings" -Permissions @('create("users")') -DocumentSecurity $true
-Ensure-Collection -Id "favorites" -Name "Favorites" -Permissions @('create("users")') -DocumentSecurity $true
+Ensure-Collection -Id "booked_slots" -Name "Booked Slots" -Permissions @('create("users")', 'read("any")') -DocumentSecurity $true
+Ensure-Collection -Id "bookings" -Name "Bookings" -Permissions @('create("users")', 'read("any")') -DocumentSecurity $true
+Ensure-Collection -Id "favorites" -Name "Favorites" -Permissions @('create("users")', 'read("any")') -DocumentSecurity $true
 
 Ensure-Attribute -CollectionId "stadiums" -Kind "string" -Definition @{ key = "name"; size = 128; required = $true; array = $false; encrypt = $false }
 Ensure-Attribute -CollectionId "stadiums" -Kind "string" -Definition @{ key = "location"; size = 128; required = $true; array = $false; encrypt = $false }
@@ -256,6 +256,7 @@ Ensure-Attribute -CollectionId "booked_slots" -Kind "string" -Definition @{ key 
 Ensure-Attribute -CollectionId "booked_slots" -Kind "string" -Definition @{ key = "status"; size = 32; required = $true; array = $false; encrypt = $false }
 
 Ensure-Attribute -CollectionId "bookings" -Kind "string" -Definition @{ key = "userId"; size = 36; required = $true; array = $false; encrypt = $false }
+Ensure-Attribute -CollectionId "bookings" -Kind "string" -Definition @{ key = "userName"; size = 128; required = $false; array = $false; encrypt = $false }
 Ensure-Attribute -CollectionId "bookings" -Kind "string" -Definition @{ key = "stadiumId"; size = 36; required = $true; array = $false; encrypt = $false }
 Ensure-Attribute -CollectionId "bookings" -Kind "string" -Definition @{ key = "slotId"; size = 36; required = $true; array = $false; encrypt = $false }
 Ensure-Attribute -CollectionId "bookings" -Kind "string" -Definition @{ key = "stadiumName"; size = 128; required = $true; array = $false; encrypt = $false }

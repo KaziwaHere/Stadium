@@ -16,6 +16,38 @@ class AuthService {
     }
   }
 
+  Future<models.User> refreshUser() {
+    return _account.get();
+  }
+
+  Future<models.User> updateName({required String name}) {
+    return _account.updateName(name: name);
+  }
+
+  Future<models.User> updateEmail({
+    required String email,
+    required String password,
+  }) {
+    return _account.updateEmail(email: email, password: password);
+  }
+
+  Future<models.User> updatePhone({
+    required String phone,
+    required String password,
+  }) {
+    return _account.updatePhone(phone: phone, password: password);
+  }
+
+  Future<models.User> updatePassword({
+    required String password,
+    required String oldPassword,
+  }) {
+    return _account.updatePassword(
+      password: password,
+      oldPassword: oldPassword,
+    );
+  }
+
   Future<models.User> register({
     required String name,
     required String email,
