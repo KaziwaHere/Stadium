@@ -3,6 +3,7 @@ import 'package:appwrite/models.dart' as models;
 import 'package:flutter/material.dart';
 import 'package:stadium/src/services/auth_service.dart';
 import 'package:stadium/src/theme/app_theme.dart';
+import 'package:stadium/src/widgets/app_notification.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key, required this.user, required this.onSignedOut});
@@ -130,20 +131,28 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _signOut() async {
-    final messenger = ScaffoldMessenger.of(context);
-
     setState(() => _isSigningOut = true);
 
     try {
       await authService.logout();
       widget.onSignedOut();
     } on AppwriteException catch (error) {
-      messenger.showSnackBar(
-        SnackBar(content: Text(error.message ?? 'Sign out failed.')),
+      if (!mounted) return;
+
+      showAppNotification(
+        context,
+        title: 'Sign out failed',
+        message: error.message ?? 'Please try again.',
+        type: AppNotificationType.error,
       );
     } catch (error) {
-      messenger.showSnackBar(
-        SnackBar(content: Text('Sign out failed: $error')),
+      if (!mounted) return;
+
+      showAppNotification(
+        context,
+        title: 'Sign out failed',
+        message: error.toString(),
+        type: AppNotificationType.error,
       );
     } finally {
       if (mounted) {

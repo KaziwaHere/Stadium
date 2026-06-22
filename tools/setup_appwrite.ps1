@@ -90,6 +90,13 @@ function Ensure-Collection {
     $existing = Invoke-Appwrite -Method "GET" -Path "/databases/$DatabaseId/collections/$Id"
     if ($existing) {
         Write-Host "Table exists: $Id"
+        Invoke-Appwrite -Method "PUT" -Path "/databases/$DatabaseId/collections/$Id" -Body @{
+            name             = $Name
+            permissions      = $Permissions
+            documentSecurity = $DocumentSecurity
+            enabled          = $true
+        } | Out-Null
+        Write-Host "Updated table settings: $Id"
         return
     }
 
@@ -167,10 +174,66 @@ function Ensure-Index {
     Write-Host "Created index: $CollectionId.$Key"
 }
 
+function Ensure-BookedSlotMarkersFromBookings {
+    $created = 0
+
+    $result = Invoke-Appwrite -Method "GET" -Path "/databases/$DatabaseId/collections/bookings/documents"
+
+    if ($null -eq $result -or $null -eq $result.documents -or $result.documents.Count -eq 0) {
+        Write-Host "Created booked slot markers from existing bookings: 0"
+        return
+    }
+
+    foreach ($document in $result.documents) {
+        if ($document.data.status -ne "active") {
+            continue
+        }
+
+        $slotId = $document.data.slotId
+        $stadiumId = $document.data.stadiumId
+        $dayDate = $document.data.dayDate
+        $slotTime = $document.data.slotTime
+
+        if ([string]::IsNullOrWhiteSpace($slotId) -or
+            [string]::IsNullOrWhiteSpace($stadiumId) -or
+            [string]::IsNullOrWhiteSpace($dayDate) -or
+            [string]::IsNullOrWhiteSpace($slotTime)) {
+            continue
+        }
+
+        $existing = Invoke-Appwrite -Method "GET" -Path "/databases/$DatabaseId/collections/booked_slots/documents/$slotId"
+        if ($existing) {
+            continue
+        }
+
+        $userId = $document.data.userId
+        $permissions = @('read("users")')
+        if (-not [string]::IsNullOrWhiteSpace($userId)) {
+            $permissions += "update(`"user:$userId`")"
+            $permissions += "delete(`"user:$userId`")"
+        }
+
+        Invoke-Appwrite -Method "POST" -Path "/databases/$DatabaseId/collections/booked_slots/documents" -Body @{
+            documentId  = $slotId
+            data        = @{
+                stadiumId = $stadiumId
+                dayDate   = $dayDate
+                slotTime  = $slotTime
+                status    = "active"
+            }
+            permissions = $permissions
+        } | Out-Null
+        $created++
+    }
+
+    Write-Host "Created booked slot markers from existing bookings: $created"
+}
+
 Ensure-Database -Id $DatabaseId -Name "Stadium Booking"
 
 Ensure-Collection -Id "stadiums" -Name "Stadiums" -Permissions @('read("any")') -DocumentSecurity $false
 Ensure-Collection -Id "slots" -Name "Slots" -Permissions @('read("any")') -DocumentSecurity $false
+Ensure-Collection -Id "booked_slots" -Name "Booked Slots" -Permissions @('create("users")') -DocumentSecurity $true
 Ensure-Collection -Id "bookings" -Name "Bookings" -Permissions @('create("users")') -DocumentSecurity $true
 Ensure-Collection -Id "favorites" -Name "Favorites" -Permissions @('create("users")') -DocumentSecurity $true
 
@@ -187,9 +250,22 @@ Ensure-Attribute -CollectionId "slots" -Kind "string" -Definition @{ key = "labe
 Ensure-Attribute -CollectionId "slots" -Kind "string" -Definition @{ key = "time"; size = 32; required = $true; array = $false; encrypt = $false }
 Ensure-Attribute -CollectionId "slots" -Kind "boolean" -Definition @{ key = "isBooked"; required = $true; array = $false }
 
+Ensure-Attribute -CollectionId "booked_slots" -Kind "string" -Definition @{ key = "stadiumId"; size = 36; required = $true; array = $false; encrypt = $false }
+Ensure-Attribute -CollectionId "booked_slots" -Kind "string" -Definition @{ key = "dayDate"; size = 32; required = $true; array = $false; encrypt = $false }
+Ensure-Attribute -CollectionId "booked_slots" -Kind "string" -Definition @{ key = "slotTime"; size = 32; required = $true; array = $false; encrypt = $false }
+Ensure-Attribute -CollectionId "booked_slots" -Kind "string" -Definition @{ key = "status"; size = 32; required = $true; array = $false; encrypt = $false }
+
 Ensure-Attribute -CollectionId "bookings" -Kind "string" -Definition @{ key = "userId"; size = 36; required = $true; array = $false; encrypt = $false }
 Ensure-Attribute -CollectionId "bookings" -Kind "string" -Definition @{ key = "stadiumId"; size = 36; required = $true; array = $false; encrypt = $false }
 Ensure-Attribute -CollectionId "bookings" -Kind "string" -Definition @{ key = "slotId"; size = 36; required = $true; array = $false; encrypt = $false }
+Ensure-Attribute -CollectionId "bookings" -Kind "string" -Definition @{ key = "stadiumName"; size = 128; required = $true; array = $false; encrypt = $false }
+Ensure-Attribute -CollectionId "bookings" -Kind "string" -Definition @{ key = "location"; size = 128; required = $true; array = $false; encrypt = $false }
+Ensure-Attribute -CollectionId "bookings" -Kind "float" -Definition @{ key = "rating"; required = $true; array = $false }
+Ensure-Attribute -CollectionId "bookings" -Kind "integer" -Definition @{ key = "price"; required = $true; array = $false }
+Ensure-Attribute -CollectionId "bookings" -Kind "string" -Definition @{ key = "icon"; size = 64; required = $true; array = $false; encrypt = $false }
+Ensure-Attribute -CollectionId "bookings" -Kind "string" -Definition @{ key = "dayLabel"; size = 32; required = $true; array = $false; encrypt = $false }
+Ensure-Attribute -CollectionId "bookings" -Kind "string" -Definition @{ key = "dayDate"; size = 32; required = $true; array = $false; encrypt = $false }
+Ensure-Attribute -CollectionId "bookings" -Kind "string" -Definition @{ key = "slotTime"; size = 32; required = $true; array = $false; encrypt = $false }
 Ensure-Attribute -CollectionId "bookings" -Kind "string" -Definition @{ key = "status"; size = 32; required = $true; array = $false; encrypt = $false }
 Ensure-Attribute -CollectionId "bookings" -Kind "datetime" -Definition @{ key = "createdAt"; required = $true; array = $false }
 
@@ -203,9 +279,15 @@ Ensure-Attribute -CollectionId "favorites" -Kind "string" -Definition @{ key = "
 Ensure-Attribute -CollectionId "favorites" -Kind "string" -Definition @{ key = "icon"; size = 64; required = $true; array = $false; encrypt = $false }
 
 Ensure-Index -CollectionId "slots" -Key "stadiumId_index" -Attributes @("stadiumId")
+Ensure-Index -CollectionId "booked_slots" -Key "stadium_status_index" -Attributes @("stadiumId", "status")
+Ensure-Index -CollectionId "booked_slots" -Key "slot_status_index" -Attributes @("stadiumId", "dayDate", "slotTime", "status")
 Ensure-Index -CollectionId "bookings" -Key "userId_index" -Attributes @("userId")
 Ensure-Index -CollectionId "bookings" -Key "slotId_index" -Attributes @("slotId")
+Ensure-Index -CollectionId "bookings" -Key "status_index" -Attributes @("status")
+Ensure-Index -CollectionId "bookings" -Key "stadium_slot_index" -Attributes @("stadiumId", "dayDate", "slotTime", "status")
 Ensure-Index -CollectionId "favorites" -Key "userId_index" -Attributes @("userId")
 Ensure-Index -CollectionId "favorites" -Key "stadiumId_index" -Attributes @("stadiumId")
+
+Ensure-BookedSlotMarkersFromBookings
 
 Write-Host "Appwrite database setup complete."

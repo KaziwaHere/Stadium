@@ -5,6 +5,7 @@ import 'package:stadium/src/data/stadium_data.dart';
 import 'package:stadium/src/models/stadium.dart';
 import 'package:stadium/src/screens/auth_page.dart';
 import 'package:stadium/src/screens/main_navigation_page.dart';
+import 'package:stadium/src/services/booking_service.dart';
 import 'package:stadium/src/services/favorite_service.dart';
 import 'package:stadium/src/theme/app_theme.dart';
 
@@ -130,6 +131,7 @@ class _TestApp extends StatelessWidget {
 MainNavigationPage _navigationPage() {
   return MainNavigationPage(
     user: _user(),
+    bookingsRepository: _FakeBookingsRepository(),
     favoritesRepository: _FakeFavoritesRepository(),
     onSignedOut: () {},
   );
@@ -154,6 +156,71 @@ models.User _user() {
     targets: const [],
     accessedAt: '2026-06-16T00:00:00.000+00:00',
   );
+}
+
+class _FakeBookingsRepository implements BookingsRepository {
+  _FakeBookingsRepository()
+    : _bookings = [
+        StadiumBooking(
+          rowId: 'booking_1',
+          stadiumId: stadiums.first.id,
+          slotId: 'emerald_arena-jun_13-700pm',
+          stadiumName: stadiums.first.name,
+          location: stadiums.first.location,
+          rating: stadiums.first.rating,
+          price: stadiums.first.price,
+          iconKey: stadiums.first.iconKey,
+          dayLabel: stadiums.first.days.first.label,
+          dayDate: stadiums.first.days.first.date,
+          slotTime: stadiums.first.days.first.slots[1].time,
+          status: BookingService.activeStatus,
+        ),
+      ];
+
+  final List<StadiumBooking> _bookings;
+
+  @override
+  Future<Set<String>> bookedSlotKeys(String stadiumId) async {
+    return _bookings
+        .where((booking) => booking.stadiumId == stadiumId)
+        .map((booking) => booking.slotKey)
+        .toSet();
+  }
+
+  @override
+  Future<void> cancelBooking({required StadiumBooking booking}) async {
+    _bookings.removeWhere((item) => item.rowId == booking.rowId);
+  }
+
+  @override
+  Future<StadiumBooking> createBooking({
+    required String userId,
+    required Stadium stadium,
+    required BookingDay day,
+    required BookingSlot slot,
+  }) async {
+    final booking = StadiumBooking(
+      rowId: 'booking_${_bookings.length + 1}',
+      stadiumId: stadium.id,
+      slotId: '${stadium.id}-${day.date}-${slot.time}',
+      stadiumName: stadium.name,
+      location: stadium.location,
+      rating: stadium.rating,
+      price: stadium.price,
+      iconKey: stadium.iconKey,
+      dayLabel: day.label,
+      dayDate: day.date,
+      slotTime: slot.time,
+      status: BookingService.activeStatus,
+    );
+    _bookings.add(booking);
+    return booking;
+  }
+
+  @override
+  Future<List<StadiumBooking>> listBookings(String userId) async {
+    return List<StadiumBooking>.of(_bookings);
+  }
 }
 
 class _FakeFavoritesRepository implements FavoritesRepository {

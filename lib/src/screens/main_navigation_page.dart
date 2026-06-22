@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:stadium/src/screens/bookings_page.dart';
 import 'package:stadium/src/screens/profile_page.dart';
 import 'package:stadium/src/screens/stadium_home_page.dart';
+import 'package:stadium/src/services/booking_service.dart';
 import 'package:stadium/src/services/favorite_service.dart';
 import 'package:stadium/src/theme/app_theme.dart';
 
@@ -13,11 +14,13 @@ class MainNavigationPage extends StatefulWidget {
     super.key,
     required this.user,
     required this.onSignedOut,
+    this.bookingsRepository,
     this.favoritesRepository,
   });
 
   final models.User user;
   final VoidCallback onSignedOut;
+  final BookingsRepository? bookingsRepository;
   final FavoritesRepository? favoritesRepository;
 
   @override
@@ -26,12 +29,18 @@ class MainNavigationPage extends StatefulWidget {
 
 class _MainNavigationPageState extends State<MainNavigationPage> {
   int _selectedIndex = 0;
+  final ValueNotifier<int> _bookingsVersion = ValueNotifier<int>(0);
   final ValueNotifier<int> _favoritesVersion = ValueNotifier<int>(0);
 
   @override
   void dispose() {
+    _bookingsVersion.dispose();
     _favoritesVersion.dispose();
     super.dispose();
+  }
+
+  void _notifyBookingsChanged() {
+    _bookingsVersion.value++;
   }
 
   void _notifyFavoritesChanged() {
@@ -43,14 +52,19 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
     final pages = [
       StadiumHomePage(
         user: widget.user,
+        bookingsRepository: widget.bookingsRepository,
         favoritesRepository: widget.favoritesRepository,
         favoritesVersion: _favoritesVersion,
+        onBookingsChanged: _notifyBookingsChanged,
         onFavoritesChanged: _notifyFavoritesChanged,
       ),
       BookingsPage(
         user: widget.user,
+        bookingsRepository: widget.bookingsRepository,
         favoritesRepository: widget.favoritesRepository,
+        bookingsVersion: _bookingsVersion,
         favoritesVersion: _favoritesVersion,
+        onBookingsChanged: _notifyBookingsChanged,
         onFavoritesChanged: _notifyFavoritesChanged,
       ),
       ProfilePage(user: widget.user, onSignedOut: widget.onSignedOut),

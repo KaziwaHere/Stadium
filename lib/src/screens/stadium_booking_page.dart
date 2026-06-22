@@ -3,8 +3,10 @@ import 'dart:ui';
 import 'package:appwrite/models.dart' as models;
 import 'package:flutter/material.dart';
 import 'package:stadium/src/models/stadium.dart';
+import 'package:stadium/src/services/booking_service.dart';
 import 'package:stadium/src/services/favorite_service.dart';
 import 'package:stadium/src/theme/app_theme.dart';
+import 'package:stadium/src/widgets/app_notification.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class StadiumBookingPage extends StatefulWidget {
@@ -15,7 +17,9 @@ class StadiumBookingPage extends StatefulWidget {
     required this.user,
     required this.isHearted,
     this.favoriteRowId,
+    this.bookingsRepository,
     this.favoritesRepository,
+    this.onBookingCreated,
   });
 
   final Stadium stadium;
@@ -23,7 +27,9 @@ class StadiumBookingPage extends StatefulWidget {
   final models.User user;
   final bool isHearted;
   final String? favoriteRowId;
+  final BookingsRepository? bookingsRepository;
   final FavoritesRepository? favoritesRepository;
+  final VoidCallback? onBookingCreated;
 
   @override
   State<StadiumBookingPage> createState() => _StadiumBookingPageState();
@@ -33,12 +39,24 @@ class _StadiumBookingPageState extends State<StadiumBookingPage> {
   int _selectedDayIndex = 0;
   BookingSlot? _selectedSlot;
   late bool _isHearted = widget.isHearted;
+  final Set<String> _bookedSlotKeys = {};
+  bool _isLoadingBookedSlots = true;
+  bool _isBooking = false;
   bool _isUpdatingFavorite = false;
+
+  BookingsRepository get _bookingsRepository =>
+      widget.bookingsRepository ?? bookingService;
 
   FavoritesRepository get _favoritesRepository =>
       widget.favoritesRepository ?? favoriteService;
 
   BookingDay get _selectedDay => widget.stadium.days[_selectedDayIndex];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBookedSlots();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -133,6 +151,14 @@ class _StadiumBookingPageState extends State<StadiumBookingPage> {
                   ],
                 ),
                 const SizedBox(height: 12),
+                if (_isLoadingBookedSlots) ...[
+                  LinearProgressIndicator(
+                    minHeight: 2,
+                    backgroundColor: colors.glassFill,
+                    valueColor: AlwaysStoppedAnimation<Color>(colors.selection),
+                  ),
+                  const SizedBox(height: 12),
+                ],
                 GridView.builder(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
@@ -146,11 +172,15 @@ class _StadiumBookingPageState extends State<StadiumBookingPage> {
                   itemBuilder: (context, index) {
                     final slot = _selectedDay.slots[index];
                     final isSelected = _selectedSlot == slot;
+                    final isBooked = _bookedSlotKeys.contains(
+                      _slotKey(_selectedDay, slot),
+                    );
 
                     return _TimeSlotButton(
                       slot: slot,
                       isSelected: isSelected,
-                      onTap: slot.isBooked
+                      isBooked: isBooked,
+                      onTap: isBooked || _isBooking || _isLoadingBookedSlots
                           ? null
                           : () {
                               setState(() => _selectedSlot = slot);
@@ -179,15 +209,33 @@ class _StadiumBookingPageState extends State<StadiumBookingPage> {
                         borderRadius: BorderRadius.circular(18),
                       ),
                     ),
-                    onPressed: _selectedSlot == null ? null : () {},
-                    child: Text(
-                      _selectedSlot == null
-                          ? 'Select a time'
-                          : 'Book ${_selectedSlot!.time}',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w900,
-                      ),
+                    onPressed: _selectedSlot == null || _isBooking
+                        ? null
+                        : _submitBooking,
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 160),
+                      child: _isBooking
+                          ? SizedBox(
+                              key: const ValueKey('bookingLoading'),
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.4,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  colors.onAction,
+                                ),
+                              ),
+                            )
+                          : Text(
+                              key: ValueKey(_selectedSlot?.time),
+                              _selectedSlot == null
+                                  ? 'Select a time'
+                                  : 'Book ${_selectedSlot!.time}',
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
                     ),
                   ),
                 ),
@@ -197,6 +245,106 @@ class _StadiumBookingPageState extends State<StadiumBookingPage> {
         ],
       ),
     );
+  }
+
+  Future<void> _loadBookedSlots() async {
+    setState(() => _isLoadingBookedSlots = true);
+
+    try {
+      final bookedSlotKeys = await _bookingsRepository.bookedSlotKeys(
+        widget.stadium.id,
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _bookedSlotKeys
+          ..clear()
+          ..addAll(bookedSlotKeys);
+        if (_selectedSlot != null &&
+            _bookedSlotKeys.contains(_slotKey(_selectedDay, _selectedSlot!))) {
+          _selectedSlot = null;
+        }
+      });
+    } catch (error) {
+      if (!mounted) return;
+
+      showAppNotification(
+        context,
+        title: 'Availability unavailable',
+        message: 'Could not refresh stadium availability.',
+        type: AppNotificationType.error,
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingBookedSlots = false);
+      }
+    }
+  }
+
+  Future<void> _submitBooking() async {
+    final slot = _selectedSlot;
+    if (slot == null || _isBooking) return;
+
+    final day = _selectedDay;
+
+    setState(() => _isBooking = true);
+
+    try {
+      await _bookingsRepository.createBooking(
+        userId: widget.user.$id,
+        stadium: widget.stadium,
+        day: day,
+        slot: slot,
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _bookedSlotKeys.add(_slotKey(day, slot));
+        _selectedSlot = null;
+      });
+      widget.onBookingCreated?.call();
+
+      showAppNotification(
+        context,
+        title: 'Stadium booked',
+        message:
+            '${widget.stadium.name} is yours ${day.label}, ${day.date} at ${slot.time}.',
+        type: AppNotificationType.success,
+      );
+    } on BookingSlotUnavailableException {
+      if (!mounted) return;
+
+      setState(() {
+        _bookedSlotKeys.add(_slotKey(day, slot));
+        _selectedSlot = null;
+      });
+
+      showAppNotification(
+        context,
+        title: 'Time unavailable',
+        message: 'That time was just booked.',
+        type: AppNotificationType.warning,
+      );
+    } catch (error) {
+      if (!mounted) return;
+
+      showAppNotification(
+        context,
+        title: 'Booking failed',
+        message: 'Could not book ${widget.stadium.name}. Try again.',
+        type: AppNotificationType.error,
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isBooking = false);
+      }
+    }
+  }
+
+  String _slotKey(BookingDay day, BookingSlot slot) {
+    return bookingSlotKey(day.date, slot.time);
   }
 
   Future<void> _toggleFavorite() async {
@@ -226,18 +374,27 @@ class _StadiumBookingPageState extends State<StadiumBookingPage> {
           stadium: widget.stadium,
         );
       }
+      if (!mounted) return;
+
+      showAppNotification(
+        context,
+        title: wasHearted ? 'Removed from hearted' : 'Stadium hearted',
+        message: wasHearted
+            ? '${widget.stadium.name} was removed from your hearted stadiums.'
+            : '${widget.stadium.name} was added to your hearted stadiums.',
+        type: AppNotificationType.success,
+      );
     } catch (error) {
       if (!mounted) return;
 
       setState(() => _isHearted = wasHearted);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            wasHearted
-                ? 'Could not remove ${widget.stadium.name} from hearted stadiums.'
-                : 'Could not heart ${widget.stadium.name}.',
-          ),
-        ),
+      showAppNotification(
+        context,
+        title: 'Heart update failed',
+        message: wasHearted
+            ? 'Could not remove ${widget.stadium.name} from hearted stadiums.'
+            : 'Could not heart ${widget.stadium.name}.',
+        type: AppNotificationType.error,
       );
     } finally {
       if (mounted) {
@@ -443,17 +600,18 @@ class _TimeSlotButton extends StatelessWidget {
   const _TimeSlotButton({
     required this.slot,
     required this.isSelected,
+    required this.isBooked,
     required this.onTap,
   });
 
   final BookingSlot slot;
   final bool isSelected;
+  final bool isBooked;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    final isBooked = slot.isBooked;
 
     return GestureDetector(
       onTap: onTap,
@@ -518,10 +676,15 @@ class _Legend extends StatelessWidget {
       children: [
         _LegendItem(color: colors.selection, label: 'Selected'),
         const SizedBox(width: 16),
-        _LegendItem(color: colors.glassFill, label: 'Available'),
+        _LegendItem(color: Colors.grey, label: 'Available'),
         const SizedBox(width: 16),
         _LegendItem(
-          color: Colors.white.withValues(alpha: .08),
+          color: const Color.fromARGB(
+            255,
+            255,
+            255,
+            255,
+          ).withValues(alpha: .08),
           label: 'Booked',
         ),
       ],

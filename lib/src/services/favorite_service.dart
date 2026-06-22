@@ -27,11 +27,33 @@ class FavoriteService implements FavoritesRepository {
 
   static const databaseId = 'stadium_booking';
   static const tableId = 'favorites';
+  static const _cacheTtl = Duration(minutes: 3);
 
   final TablesDB _tables;
+  final Map<String, _CacheEntry<List<FavoriteStadium>>> _favoritesCache = {};
+  final Map<String, Future<List<FavoriteStadium>>> _favoritesRequests = {};
 
   @override
   Future<List<FavoriteStadium>> listFavorites(String userId) async {
+    final cached = _freshCachedFavorites(userId);
+    if (cached != null) return cached;
+
+    final existingRequest = _favoritesRequests[userId];
+    if (existingRequest != null) return existingRequest;
+
+    final request = _fetchFavorites(userId);
+    _favoritesRequests[userId] = request;
+
+    try {
+      final favorites = await request;
+      _favoritesCache[userId] = _CacheEntry(favorites);
+      return favorites;
+    } finally {
+      _favoritesRequests.remove(userId);
+    }
+  }
+
+  Future<List<FavoriteStadium>> _fetchFavorites(String userId) async {
     final rows = await _tables.listRows(
       databaseId: databaseId,
       tableId: tableId,
@@ -80,7 +102,9 @@ class FavoriteService implements FavoritesRepository {
       ],
     );
 
-    return FavoriteStadium.fromRow(row);
+    final favorite = FavoriteStadium.fromRow(row);
+    _appendCachedFavorite(userId, favorite);
+    return favorite;
   }
 
   @override
@@ -100,21 +124,35 @@ class FavoriteService implements FavoritesRepository {
       tableId: tableId,
       rowId: favorite.rowId,
     );
+    _removeCachedFavorite(
+      userId: userId,
+      rowId: favorite.rowId,
+      stadiumId: favorite.stadiumId,
+    );
   }
 
   @override
-  Future<void> removeFavoriteRow({required String rowId}) {
-    return _tables.deleteRow(
+  Future<void> removeFavoriteRow({required String rowId}) async {
+    await _tables.deleteRow(
       databaseId: databaseId,
       tableId: tableId,
       rowId: rowId,
     );
+    _removeCachedFavorite(rowId: rowId);
   }
 
   Future<FavoriteStadium?> _favoriteForStadium({
     required String userId,
     required String stadiumId,
   }) async {
+    final cached = _freshCachedFavorites(userId);
+    if (cached != null) {
+      for (final favorite in cached) {
+        if (favorite.stadiumId == stadiumId) return favorite;
+      }
+      return null;
+    }
+
     final rows = await _tables.listRows(
       databaseId: databaseId,
       tableId: tableId,
@@ -128,6 +166,55 @@ class FavoriteService implements FavoritesRepository {
     if (rows.rows.isEmpty) return null;
     return FavoriteStadium.fromRow(rows.rows.first);
   }
+
+  List<FavoriteStadium>? _freshCachedFavorites(String userId) {
+    final cached = _favoritesCache[userId];
+    if (cached == null || cached.isExpired(_cacheTtl)) return null;
+    return List<FavoriteStadium>.of(cached.value);
+  }
+
+  void _appendCachedFavorite(String userId, FavoriteStadium favorite) {
+    final cached = _favoritesCache[userId];
+    if (cached == null || cached.isExpired(_cacheTtl)) return;
+
+    final favorites = [
+      favorite,
+      ...cached.value.where((item) => item.stadiumId != favorite.stadiumId),
+    ];
+    _favoritesCache[userId] = _CacheEntry(favorites);
+  }
+
+  void _removeCachedFavorite({
+    String? userId,
+    required String rowId,
+    String? stadiumId,
+  }) {
+    List<MapEntry<String, _CacheEntry<List<FavoriteStadium>>>> entries =
+        _favoritesCache.entries.toList();
+    if (userId != null) {
+      final entry = _favoritesCache[userId];
+      entries = entry == null ? const [] : [MapEntry(userId, entry)];
+    }
+
+    for (final entry in entries) {
+      final favorites = entry.value.value.where((favorite) {
+        final rowMatches = favorite.rowId == rowId;
+        final stadiumMatches =
+            stadiumId != null && favorite.stadiumId == stadiumId;
+        return !rowMatches && !stadiumMatches;
+      }).toList();
+      _favoritesCache[entry.key] = _CacheEntry(favorites);
+    }
+  }
+}
+
+class _CacheEntry<T> {
+  _CacheEntry(this.value) : createdAt = DateTime.now();
+
+  final T value;
+  final DateTime createdAt;
+
+  bool isExpired(Duration ttl) => DateTime.now().difference(createdAt) > ttl;
 }
 
 class FavoriteStadium {

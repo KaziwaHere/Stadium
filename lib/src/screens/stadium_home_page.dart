@@ -6,21 +6,27 @@ import 'package:appwrite/models.dart' as models;
 import 'package:stadium/src/data/stadium_data.dart';
 import 'package:stadium/src/models/stadium.dart';
 import 'package:stadium/src/screens/stadium_booking_page.dart';
+import 'package:stadium/src/services/booking_service.dart';
 import 'package:stadium/src/services/favorite_service.dart';
 import 'package:stadium/src/theme/app_theme.dart';
+import 'package:stadium/src/widgets/app_notification.dart';
 
 class StadiumHomePage extends StatefulWidget {
   const StadiumHomePage({
     super.key,
     required this.user,
+    this.bookingsRepository,
     this.favoritesRepository,
     this.favoritesVersion,
+    this.onBookingsChanged,
     this.onFavoritesChanged,
   });
 
   final models.User user;
+  final BookingsRepository? bookingsRepository;
   final FavoritesRepository? favoritesRepository;
   final ValueListenable<int>? favoritesVersion;
+  final VoidCallback? onBookingsChanged;
   final VoidCallback? onFavoritesChanged;
 
   @override
@@ -29,8 +35,10 @@ class StadiumHomePage extends StatefulWidget {
 
 class _StadiumHomePageState extends State<StadiumHomePage> {
   late Future<Set<String>> _favoriteIdsFuture;
+  final TextEditingController _searchController = TextEditingController();
   Set<String> _favoriteIds = {};
   final Set<String> _updatingFavoriteIds = {};
+  String _searchQuery = '';
 
   FavoritesRepository get _favoritesRepository =>
       widget.favoritesRepository ?? favoriteService;
@@ -53,6 +61,7 @@ class _StadiumHomePageState extends State<StadiumHomePage> {
 
   @override
   void dispose() {
+    _searchController.dispose();
     widget.favoritesVersion?.removeListener(_handleFavoritesChanged);
     super.dispose();
   }
@@ -73,6 +82,8 @@ class _StadiumHomePageState extends State<StadiumHomePage> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final filteredStadiums = _filteredStadiums;
+    final isSearching = _searchQuery.trim().isNotEmpty;
 
     return FutureBuilder<Set<String>>(
       future: _favoriteIdsFuture,
@@ -82,74 +93,96 @@ class _StadiumHomePageState extends State<StadiumHomePage> {
             children: [
               const _AmbientBackground(),
               SafeArea(
-                child: CustomScrollView(
-                  physics: const BouncingScrollPhysics(),
-                  slivers: [
-                    SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
-                      sliver: SliverToBoxAdapter(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const _TopBar(),
-                            const SizedBox(height: 24),
-                            const SizedBox(height: 10),
-                            const SizedBox(height: 22),
-                            const _SearchPanel(),
-                            const SizedBox(height: 26),
-                            const _SectionHeader(
-                              title: 'Featured stadium',
-                              action: 'View all',
-                            ),
-                            const SizedBox(height: 14),
-                            _FeaturedStadium(
-                              stadium: stadiums.first,
-                              gradient: colors.stadiumGradients.first,
-                              isHearted: _isHearted(stadiums.first),
-                              isUpdating: _isUpdating(stadiums.first),
-                              onHeart: () => _toggleFavorite(stadiums.first),
-                              onBook: () => _openBookingPage(
-                                context,
-                                stadiums.first,
-                                colors.stadiumGradients.first,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onTap: () => FocusScope.of(context).unfocus(),
+                  child: CustomScrollView(
+                    keyboardDismissBehavior:
+                        ScrollViewKeyboardDismissBehavior.onDrag,
+                    physics: const BouncingScrollPhysics(),
+                    slivers: [
+                      SliverPadding(
+                        padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+                        sliver: SliverToBoxAdapter(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const _TopBar(),
+                              const SizedBox(height: 24),
+                              const SizedBox(height: 10),
+                              const SizedBox(height: 22),
+                              _SearchPanel(
+                                controller: _searchController,
+                                onChanged: _handleSearchChanged,
+                                onClear: _clearSearch,
                               ),
-                            ),
-                            const SizedBox(height: 28),
-                            const _SectionHeader(
-                              title: 'Available near you',
-                              action: 'Map',
-                            ),
-                            const SizedBox(height: 14),
-                          ],
+                              const SizedBox(height: 26),
+                              if (!isSearching) ...[
+                                const _SectionHeader(
+                                  title: 'Featured stadium',
+                                  action: 'View all',
+                                ),
+                                const SizedBox(height: 14),
+                                _FeaturedStadium(
+                                  stadium: stadiums.first,
+                                  gradient: colors.stadiumGradients.first,
+                                  isHearted: _isHearted(stadiums.first),
+                                  isUpdating: _isUpdating(stadiums.first),
+                                  onHeart: () =>
+                                      _toggleFavorite(stadiums.first),
+                                  onBook: () => _openBookingPage(
+                                    context,
+                                    stadiums.first,
+                                    colors.stadiumGradients.first,
+                                  ),
+                                ),
+                                const SizedBox(height: 28),
+                              ],
+                              _SectionHeader(
+                                title: isSearching
+                                    ? 'Search results'
+                                    : 'Available near you',
+                                action: isSearching
+                                    ? '${filteredStadiums.length} found'
+                                    : 'Map',
+                              ),
+                              const SizedBox(height: 14),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                    SliverPadding(
-                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 110),
-                      sliver: SliverList.separated(
-                        itemBuilder: (context, index) {
-                          return _StadiumCard(
-                            stadium: stadiums[index],
-                            gradient:
-                                colors.stadiumGradients[index %
-                                    colors.stadiumGradients.length],
-                            isHearted: _isHearted(stadiums[index]),
-                            isUpdating: _isUpdating(stadiums[index]),
-                            onHeart: () => _toggleFavorite(stadiums[index]),
-                            onTap: () => _openBookingPage(
-                              context,
-                              stadiums[index],
-                              colors.stadiumGradients[index %
-                                  colors.stadiumGradients.length],
-                            ),
-                          );
-                        },
-                        separatorBuilder: (context, index) =>
-                            const SizedBox(height: 14),
-                        itemCount: stadiums.length,
+                      SliverPadding(
+                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 110),
+                        sliver: filteredStadiums.isEmpty
+                            ? SliverToBoxAdapter(
+                                child: _EmptySearchResult(query: _searchQuery),
+                              )
+                            : SliverList.separated(
+                                itemBuilder: (context, index) {
+                                  final stadium = filteredStadiums[index];
+                                  return _StadiumCard(
+                                    stadium: stadium,
+                                    gradient:
+                                        colors.stadiumGradients[index %
+                                            colors.stadiumGradients.length],
+                                    isHearted: _isHearted(stadium),
+                                    isUpdating: _isUpdating(stadium),
+                                    onHeart: () => _toggleFavorite(stadium),
+                                    onTap: () => _openBookingPage(
+                                      context,
+                                      stadium,
+                                      colors.stadiumGradients[index %
+                                          colors.stadiumGradients.length],
+                                    ),
+                                  );
+                                },
+                                separatorBuilder: (context, index) =>
+                                    const SizedBox(height: 14),
+                                itemCount: filteredStadiums.length,
+                              ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ],
@@ -163,6 +196,27 @@ class _StadiumHomePageState extends State<StadiumHomePage> {
 
   bool _isUpdating(Stadium stadium) =>
       _updatingFavoriteIds.contains(stadium.id);
+
+  List<Stadium> get _filteredStadiums {
+    final query = _searchQuery.trim().toLowerCase();
+    if (query.isEmpty) return stadiums;
+
+    return stadiums.where((stadium) {
+      return stadium.name.toLowerCase().contains(query) ||
+          stadium.location.toLowerCase().contains(query) ||
+          stadium.available.toLowerCase().contains(query) ||
+          stadium.price.toString().contains(query);
+    }).toList();
+  }
+
+  void _handleSearchChanged(String value) {
+    setState(() => _searchQuery = value);
+  }
+
+  void _clearSearch() {
+    _searchController.clear();
+    setState(() => _searchQuery = '');
+  }
 
   Future<void> _toggleFavorite(Stadium stadium) async {
     if (_updatingFavoriteIds.contains(stadium.id)) return;
@@ -191,6 +245,16 @@ class _StadiumHomePageState extends State<StadiumHomePage> {
         );
       }
       widget.onFavoritesChanged?.call();
+      if (!mounted) return;
+
+      showAppNotification(
+        context,
+        title: wasHearted ? 'Removed from hearted' : 'Stadium hearted',
+        message: wasHearted
+            ? '${stadium.name} was removed from your hearted stadiums.'
+            : '${stadium.name} was added to your hearted stadiums.',
+        type: AppNotificationType.success,
+      );
     } catch (error) {
       if (!mounted) return;
 
@@ -202,14 +266,13 @@ class _StadiumHomePageState extends State<StadiumHomePage> {
         }
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            wasHearted
-                ? 'Could not remove ${stadium.name} from hearted stadiums.'
-                : 'Could not heart ${stadium.name}.',
-          ),
-        ),
+      showAppNotification(
+        context,
+        title: 'Heart update failed',
+        message: wasHearted
+            ? 'Could not remove ${stadium.name} from hearted stadiums.'
+            : 'Could not heart ${stadium.name}.',
+        type: AppNotificationType.error,
       );
     } finally {
       if (mounted) {
@@ -230,7 +293,9 @@ class _StadiumHomePageState extends State<StadiumHomePage> {
           gradient: gradient,
           user: widget.user,
           isHearted: _isHearted(stadium),
+          bookingsRepository: widget.bookingsRepository,
           favoritesRepository: _favoritesRepository,
+          onBookingCreated: widget.onBookingsChanged,
         ),
       ),
     );
@@ -363,7 +428,15 @@ class _TopBar extends StatelessWidget {
 }
 
 class _SearchPanel extends StatelessWidget {
-  const _SearchPanel();
+  const _SearchPanel({
+    required this.controller,
+    required this.onChanged,
+    required this.onClear,
+  });
+
+  final TextEditingController controller;
+  final ValueChanged<String> onChanged;
+  final VoidCallback onClear;
 
   @override
   Widget build(BuildContext context) {
@@ -377,34 +450,38 @@ class _SearchPanel extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.search_rounded, color: colors.mutedIcon),
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Icon(Icons.search_rounded, color: colors.mutedIcon),
+              ),
               const SizedBox(width: 10),
               Expanded(
-                child: Text(
-                  'Search stadium name or area',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Colors.white.withValues(alpha: .58),
+                child: TextField(
+                  controller: controller,
+                  onChanged: onChanged,
+                  textInputAction: TextInputAction.search,
+                  cursorColor: colors.selection,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                  ),
+                  decoration: InputDecoration(
+                    isDense: true,
+                    border: InputBorder.none,
+                    hintText: 'Search stadium name or area',
+                    hintStyle: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: Colors.white.withValues(alpha: .58),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 10),
                   ),
                 ),
               ),
-              const _FilterButton(),
-            ],
-          ),
-          const SizedBox(height: 14),
-          const Row(
-            children: [
-              Expanded(
-                child: _QuickFilter(
-                  icon: Icons.calendar_month_rounded,
-                  label: 'Today',
-                ),
-              ),
-              SizedBox(width: 10),
-              Expanded(
-                child: _QuickFilter(
-                  icon: Icons.access_time_rounded,
-                  label: 'Evening',
-                ),
+              ValueListenableBuilder<TextEditingValue>(
+                valueListenable: controller,
+                builder: (context, value, child) {
+                  if (value.text.isEmpty) return const SizedBox.shrink();
+                  return _ClearSearchButton(onTap: onClear);
+                },
               ),
             ],
           ),
@@ -414,21 +491,86 @@ class _SearchPanel extends StatelessWidget {
   }
 }
 
-class _FilterButton extends StatelessWidget {
-  const _FilterButton();
+class _ClearSearchButton extends StatelessWidget {
+  const _ClearSearchButton({required this.onTap});
+
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
 
-    return Container(
-      width: 42,
-      height: 42,
-      decoration: BoxDecoration(
-        color: colors.action,
-        borderRadius: BorderRadius.circular(16),
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 42,
+        height: 42,
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: .08),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: colors.glassBorder),
+        ),
+        child: Icon(
+          Icons.close_rounded,
+          color: Colors.white.withValues(alpha: .8),
+        ),
       ),
-      child: Icon(Icons.tune_rounded, color: colors.onAction),
+    );
+  }
+}
+
+class _EmptySearchResult extends StatelessWidget {
+  const _EmptySearchResult({required this.query});
+
+  final String query;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+
+    return GlassContainer(
+      borderRadius: 24,
+      padding: const EdgeInsets.all(18),
+      child: Row(
+        children: [
+          Container(
+            width: 54,
+            height: 54,
+            decoration: BoxDecoration(
+              color: colors.glassFill,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: colors.glassBorder),
+            ),
+            child: Icon(
+              Icons.search_off_rounded,
+              color: Colors.white.withValues(alpha: .74),
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'No stadiums found',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  'No results for "$query". Try another name or area.',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: .58),
+                    height: 1.3,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
