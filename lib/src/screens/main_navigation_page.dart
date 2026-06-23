@@ -65,6 +65,10 @@ class _MainNavigationPageState extends State<MainNavigationPage> {
               selectedIndex: _selectedIndex,
               destinations: destinations,
               onDestinationSelected: (index) {
+                if (index == 1) {
+                  _notifyBookingsChanged();
+                }
+
                 if (index == _selectedIndex) return;
 
                 setState(() => _selectedIndex = index);

@@ -17,6 +17,7 @@ const STADIUMS_TABLE_ID = "stadiums";
 const ACTIVE_STATUS = "active";
 const PENDING_STATUS = "pending";
 const DENIED_STATUS = "denied";
+const RESERVED_SLOT_STATUSES = new Set([ACTIVE_STATUS, PENDING_STATUS]);
 
 const usersCache = {
   expiresAt: 0,
@@ -195,27 +196,25 @@ async function createBooking({ tables, callerId, body, res }) {
   const status = managerId ? PENDING_STATUS : ACTIVE_STATUS;
   const slotId = String(body?.slotId || slotIdFor(stadiumId, dayDate, slotTime));
 
-  if (!managerId) {
-    try {
-      await tables.createRow(
-        DATABASE_ID,
-        BOOKED_SLOTS_TABLE_ID,
-        slotId,
-        {
-          stadiumId,
-          dayDate,
-          slotTime,
-          status: ACTIVE_STATUS,
-        },
-        bookedSlotPermissions(userId, null),
-      );
-    } catch (err) {
-      if (err?.code === 409) {
-        return res.json({ error: "That slot is no longer available." }, 409);
-      }
-
-      throw err;
+  try {
+    await tables.createRow(
+      DATABASE_ID,
+      BOOKED_SLOTS_TABLE_ID,
+      slotId,
+      {
+        stadiumId,
+        dayDate,
+        slotTime,
+        status,
+      },
+      bookedSlotPermissions(userId, managerId),
+    );
+  } catch (err) {
+    if (err?.code === 409) {
+      return res.json({ error: "That slot is no longer available." }, 409);
     }
+
+    throw err;
   }
 
   try {
@@ -244,11 +243,11 @@ async function createBooking({ tables, callerId, body, res }) {
 
     return res.json({ booking: rowPayload(row) });
   } catch (err) {
-    if (!managerId) {
-      try {
-        await tables.deleteRow(DATABASE_ID, BOOKED_SLOTS_TABLE_ID, slotId);
-      } catch (deleteErr) {
-        if (deleteErr?.code !== 404) throw deleteErr;
+    try {
+      await tables.deleteRow(DATABASE_ID, BOOKED_SLOTS_TABLE_ID, slotId);
+    } catch (deleteErr) {
+      if (deleteErr?.code !== 404) {
+        throw deleteErr;
       }
     }
 
@@ -285,20 +284,29 @@ async function acceptBookingRequest({ tables, callerId, body, res }) {
   }
 
   try {
-    await tables.createRow(
+    const slot = await tables.getRow(
       DATABASE_ID,
       BOOKED_SLOTS_TABLE_ID,
       data.slotId,
-      {
-        stadiumId: data.stadiumId,
-        dayDate: data.dayDate,
-        slotTime: data.slotTime,
-        status: ACTIVE_STATUS,
-      },
-      bookedSlotPermissions(data.userId, callerId),
     );
-  } catch (err) {
-    if (err?.code === 409) {
+    const slotData = slot.data ?? slot;
+    if (!RESERVED_SLOT_STATUSES.has(slotData.status)) {
+      await tables.updateRow(
+        DATABASE_ID,
+        BOOKED_SLOTS_TABLE_ID,
+        data.slotId,
+        { status: ACTIVE_STATUS },
+        bookedSlotPermissions(data.userId, callerId),
+      );
+    } else if (slotData.status === PENDING_STATUS) {
+      await tables.updateRow(
+        DATABASE_ID,
+        BOOKED_SLOTS_TABLE_ID,
+        data.slotId,
+        { status: ACTIVE_STATUS },
+        bookedSlotPermissions(data.userId, callerId),
+      );
+    } else {
       await tables.updateRow(
         DATABASE_ID,
         BOOKINGS_TABLE_ID,
@@ -308,8 +316,23 @@ async function acceptBookingRequest({ tables, callerId, body, res }) {
       );
       return res.json({ error: "That slot is no longer available." }, 409);
     }
-
-    throw err;
+  } catch (err) {
+    if (err?.code === 404) {
+      await tables.createRow(
+        DATABASE_ID,
+        BOOKED_SLOTS_TABLE_ID,
+        data.slotId,
+        {
+          stadiumId: data.stadiumId,
+          dayDate: data.dayDate,
+          slotTime: data.slotTime,
+          status: ACTIVE_STATUS,
+        },
+        bookedSlotPermissions(data.userId, callerId),
+      );
+    } else {
+      throw err;
+    }
   }
 
   const updated = await tables.updateRow(
@@ -336,6 +359,18 @@ async function denyBookingRequest({ tables, callerId, body, res }) {
     { status: DENIED_STATUS },
     bookingPermissions(data.userId, callerId),
   );
+
+  try {
+    await tables.deleteRow(
+      DATABASE_ID,
+      BOOKED_SLOTS_TABLE_ID,
+      data.slotId,
+    );
+  } catch (err) {
+    if (err?.code !== 404) {
+      throw err;
+    }
+  }
 
   return res.json({ ok: true });
 }

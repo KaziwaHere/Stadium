@@ -305,7 +305,8 @@ class _StadiumBookingPageState extends State<StadiumBookingPage> {
       if (!mounted) return;
 
       setState(() {
-        if (booking.status == BookingService.activeStatus) {
+        if (booking.status == BookingService.activeStatus ||
+            booking.status == BookingService.pendingStatus) {
           _bookedSlotKeys.add(_slotKey(day, slot));
         }
         _selectedSlot = null;

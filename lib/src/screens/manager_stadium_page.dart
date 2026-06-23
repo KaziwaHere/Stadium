@@ -2,15 +2,22 @@ import 'package:appwrite/appwrite.dart';
 import 'package:appwrite/models.dart' as models;
 import 'package:flutter/material.dart';
 import 'package:stadium/src/models/stadium.dart';
+import 'package:stadium/src/services/booking_service.dart';
 import 'package:stadium/src/services/manager_stadium_service.dart';
 import 'package:stadium/src/theme/app_theme.dart';
 import 'package:stadium/src/widgets/app_notification.dart';
 
 class ManagerStadiumPage extends StatefulWidget {
-  const ManagerStadiumPage({super.key, required this.user, this.repository});
+  const ManagerStadiumPage({
+    super.key,
+    required this.user,
+    this.repository,
+    this.bookingsRepository,
+  });
 
   final models.User user;
   final ManagerStadiumRepository? repository;
+  final BookingsRepository? bookingsRepository;
 
   @override
   State<ManagerStadiumPage> createState() => _ManagerStadiumPageState();
@@ -21,6 +28,9 @@ class _ManagerStadiumPageState extends State<ManagerStadiumPage> {
 
   ManagerStadiumRepository get _repository =>
       widget.repository ?? managerStadiumService;
+
+  BookingsRepository get _bookingsRepository =>
+      widget.bookingsRepository ?? bookingService;
 
   Future<Stadium?> _loadStadium() {
     return _repository.managerStadium(widget.user.$id);
@@ -69,7 +79,10 @@ class _ManagerStadiumPageState extends State<ManagerStadiumPage> {
                 );
               }
 
-              return _ManagerStadiumDetails(stadium: stadium);
+              return _ManagerStadiumDetails(
+                stadium: stadium,
+                bookingsRepository: _bookingsRepository,
+              );
             },
           ),
         ),
@@ -188,9 +201,13 @@ class _ManagerStatusView extends StatelessWidget {
 }
 
 class _ManagerStadiumDetails extends StatelessWidget {
-  const _ManagerStadiumDetails({required this.stadium});
+  const _ManagerStadiumDetails({
+    required this.stadium,
+    required this.bookingsRepository,
+  });
 
   final Stadium stadium;
+  final BookingsRepository bookingsRepository;
 
   @override
   Widget build(BuildContext context) {
@@ -254,7 +271,282 @@ class _ManagerStadiumDetails extends StatelessWidget {
             ],
           ),
         ),
+        const SizedBox(height: 22),
+        _ManagerSchedulePanel(
+          stadium: stadium,
+          bookingsRepository: bookingsRepository,
+        ),
       ],
+    );
+  }
+}
+
+class _ManagerSchedulePanel extends StatelessWidget {
+  const _ManagerSchedulePanel({
+    required this.stadium,
+    required this.bookingsRepository,
+  });
+
+  final Stadium stadium;
+  final BookingsRepository bookingsRepository;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: colors.glassFill,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: colors.glassBorder),
+      ),
+      child: FutureBuilder<Set<String>>(
+        future: bookingsRepository.bookedSlotKeys(stadium.id),
+        builder: (context, snapshot) {
+          final bookedSlotKeys = snapshot.data ?? const <String>{};
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Times',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  if (snapshot.connectionState != ConnectionState.done)
+                    SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          colors.selection,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Read-only schedule for your stadium.',
+                style: TextStyle(color: Colors.white.withValues(alpha: .62)),
+              ),
+              const SizedBox(height: 16),
+              if (snapshot.hasError)
+                _ScheduleStatus(
+                  icon: Icons.error_outline_rounded,
+                  title: 'Could not load booked times',
+                  subtitle: 'Check your connection and try again.',
+                )
+              else if (stadium.days.isEmpty)
+                const _ScheduleStatus(
+                  icon: Icons.access_time_rounded,
+                  title: 'No times set',
+                  subtitle: 'Users will see times here when slots are added.',
+                )
+              else
+                for (final day in stadium.days) ...[
+                  _ManagerScheduleDay(day: day, bookedSlotKeys: bookedSlotKeys),
+                  if (day != stadium.days.last) const SizedBox(height: 16),
+                ],
+              const SizedBox(height: 16),
+              const _ManagerScheduleLegend(),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _ManagerScheduleDay extends StatelessWidget {
+  const _ManagerScheduleDay({required this.day, required this.bookedSlotKeys});
+
+  final BookingDay day;
+  final Set<String> bookedSlotKeys;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '${day.label}, ${day.date}',
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: .86),
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 10),
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: day.slots.length,
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            crossAxisSpacing: 10,
+            mainAxisSpacing: 10,
+            childAspectRatio: 2.55,
+          ),
+          itemBuilder: (context, index) {
+            final slot = day.slots[index];
+            final isBooked = bookedSlotKeys.contains(
+              bookingSlotKey(day.date, slot.time),
+            );
+
+            return _ManagerTimeSlot(slot: slot, isBooked: isBooked);
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class _ManagerTimeSlot extends StatelessWidget {
+  const _ManagerTimeSlot({required this.slot, required this.isBooked});
+
+  final BookingSlot slot;
+  final bool isBooked;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+
+    return Container(
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: isBooked
+            ? colors.action.withValues(alpha: .12)
+            : colors.glassFill,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: isBooked
+              ? colors.action.withValues(alpha: .56)
+              : colors.glassBorder,
+        ),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            slot.time,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            isBooked ? 'Booked' : 'Available',
+            style: TextStyle(
+              color: isBooked
+                  ? colors.action
+                  : Colors.white.withValues(alpha: .52),
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ManagerScheduleLegend extends StatelessWidget {
+  const _ManagerScheduleLegend();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+
+    return Wrap(
+      spacing: 16,
+      runSpacing: 8,
+      children: [
+        _LegendDot(color: colors.glassBorder, label: 'Available'),
+        _LegendDot(color: colors.action, label: 'Booked'),
+      ],
+    );
+  }
+}
+
+class _LegendDot extends StatelessWidget {
+  const _LegendDot({required this.color, required this.label});
+
+  final Color color;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: .62),
+            fontWeight: FontWeight.w700,
+            fontSize: 12,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ScheduleStatus extends StatelessWidget {
+  const _ScheduleStatus({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Icon(icon, color: Colors.white.withValues(alpha: .72)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  subtitle,
+                  style: TextStyle(color: Colors.white.withValues(alpha: .58)),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -325,7 +617,6 @@ class _CreateManagerStadiumSheetState
   @override
   Widget build(BuildContext context) {
     final viewInsets = MediaQuery.of(context).viewInsets;
-    final colors = context.appColors;
 
     return Padding(
       padding: EdgeInsets.only(bottom: viewInsets.bottom),

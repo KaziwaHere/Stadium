@@ -185,7 +185,7 @@ function Ensure-BookedSlotMarkersFromBookings {
     }
 
     foreach ($document in $result.documents) {
-        if ($document.data.status -ne "active") {
+        if ($document.data.status -ne "active" -and $document.data.status -ne "pending") {
             continue
         }
 
@@ -219,7 +219,7 @@ function Ensure-BookedSlotMarkersFromBookings {
                 stadiumId = $stadiumId
                 dayDate   = $dayDate
                 slotTime  = $slotTime
-                status    = "active"
+                status    = $document.data.status
             }
             permissions = $permissions
         } | Out-Null

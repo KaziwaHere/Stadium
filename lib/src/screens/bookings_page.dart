@@ -92,6 +92,7 @@ class _BookingsPageState extends State<BookingsPage> {
       selectedSection: _selectedSection,
       bookingsFuture: _bookingsFuture,
       favoritesFuture: _favoritesFuture,
+      onOpenHistory: _openBookingHistory,
       onCancelBooking: _cancelBooking,
       onOpenFavorite: (favorite, index) =>
           _openFavorite(context, favorite, index),
@@ -106,6 +107,17 @@ class _BookingsPageState extends State<BookingsPage> {
           }
         });
       },
+    );
+  }
+
+  void _openBookingHistory() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => BookingHistoryPage(
+          user: widget.user,
+          bookingsRepository: _bookingsRepository,
+        ),
+      ),
     );
   }
 
@@ -308,8 +320,7 @@ class _AnimatedBookingsList extends StatefulWidget {
 }
 
 class _AnimatedBookingsListState extends State<_AnimatedBookingsList> {
-  final _listKey = GlobalKey<AnimatedListState>();
-  late final List<StadiumBooking> _bookings = List.of(widget.bookings);
+  late List<StadiumBooking> _bookings = List.of(widget.bookings);
 
   @override
   void didUpdateWidget(_AnimatedBookingsList oldWidget) {
@@ -322,82 +333,33 @@ class _AnimatedBookingsListState extends State<_AnimatedBookingsList> {
     if (_bookings.isEmpty) {
       return const _BookingsStatusCard(
         icon: Icons.stadium_rounded,
-        title: 'No active bookings',
+        title: 'No bookings',
         subtitle: 'Book a stadium from the home page to track it here.',
       );
     }
 
-    return AnimatedList(
-      key: _listKey,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      initialItemCount: _bookings.length,
-      itemBuilder: (context, index, animation) {
-        return _AnimatedListEntry(
-          animation: animation,
-          child: _BookingListItem(
+    return Column(
+      children: [
+        for (var index = 0; index < _bookings.length; index++)
+          _BookingListItem(
             booking: _bookings[index],
             index: index,
             onCancel: widget.onCancel,
+            showAcceptedDivider: _showAcceptedDivider(index),
           ),
-        );
-      },
+      ],
     );
   }
 
   void _syncBookings() {
-    final nextBookings = widget.bookings;
-    if (_bookings.isEmpty && nextBookings.isNotEmpty) {
-      setState(() => _bookings.addAll(nextBookings));
-      return;
-    }
+    setState(() => _bookings = List.of(widget.bookings));
+  }
 
-    final nextIds = nextBookings.map((booking) => booking.rowId).toSet();
-    var removedAny = false;
+  bool _showAcceptedDivider(int index) {
+    if (index == 0) return false;
 
-    for (var index = _bookings.length - 1; index >= 0; index--) {
-      final booking = _bookings[index];
-      if (nextIds.contains(booking.rowId)) continue;
-
-      final removedIndex = index;
-      final removedBooking = _bookings.removeAt(index);
-      removedAny = true;
-      _listKey.currentState?.removeItem(
-        removedIndex,
-        (context, animation) => _AnimatedListEntry(
-          animation: animation,
-          child: _BookingListItem(
-            booking: removedBooking,
-            index: removedIndex,
-            onCancel: widget.onCancel,
-          ),
-        ),
-        duration: const Duration(milliseconds: 340),
-      );
-    }
-
-    if (removedAny && _bookings.isEmpty) {
-      Future<void>.delayed(const Duration(milliseconds: 340), () {
-        if (mounted) setState(() {});
-      });
-    }
-
-    for (var index = 0; index < nextBookings.length; index++) {
-      final booking = nextBookings[index];
-      final existingIndex = _bookings.indexWhere(
-        (item) => item.rowId == booking.rowId,
-      );
-
-      if (existingIndex == -1) {
-        _bookings.insert(index, booking);
-        _listKey.currentState?.insertItem(
-          index,
-          duration: const Duration(milliseconds: 320),
-        );
-      } else {
-        _bookings[existingIndex] = booking;
-      }
-    }
+    return _bookings[index - 1].status == BookingService.activeStatus &&
+        _bookings[index].status != BookingService.activeStatus;
   }
 }
 
@@ -406,20 +368,49 @@ class _BookingListItem extends StatelessWidget {
     required this.booking,
     required this.index,
     required this.onCancel,
+    this.showAcceptedDivider = false,
   });
 
   final StadiumBooking booking;
   final int index;
   final ValueChanged<StadiumBooking> onCancel;
+  final bool showAcceptedDivider;
 
   @override
   Widget build(BuildContext context) {
+    final canCancel = booking.status == BookingService.activeStatus;
+
+    return Column(
+      children: [
+        if (showAcceptedDivider) const _AcceptedBookingsDivider(),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: _ActiveBookingCard(
+            booking: booking,
+            index: index,
+            onCancel: canCancel ? () => onCancel(booking) : null,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _AcceptedBookingsDivider extends StatelessWidget {
+  const _AcceptedBookingsDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: _ActiveBookingCard(
-        booking: booking,
-        index: index,
-        onCancel: () => onCancel(booking),
+      padding: const EdgeInsets.fromLTRB(6, 4, 6, 16),
+      child: Container(
+        height: 1,
+        decoration: BoxDecoration(
+          color: colors.glassBorder.withValues(alpha: .74),
+          borderRadius: BorderRadius.circular(999),
+        ),
       ),
     );
   }
@@ -430,17 +421,23 @@ class _ActiveBookingCard extends StatelessWidget {
     required this.booking,
     required this.index,
     required this.onCancel,
+    this.showCancelAction = true,
   });
 
   final StadiumBooking booking;
   final int index;
-  final VoidCallback onCancel;
+  final VoidCallback? onCancel;
+  final bool showCancelAction;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final gradient =
         colors.stadiumGradients[index % colors.stadiumGradients.length];
+    final statusLabel = _statusLabel(
+      booking.status,
+      includeActive: !showCancelAction,
+    );
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -508,17 +505,176 @@ class _ActiveBookingCard extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 10),
-          IconButton(
-            tooltip: 'Cancel booking',
-            onPressed: onCancel,
-            style: IconButton.styleFrom(
-              foregroundColor: colors.action,
-              minimumSize: const Size(42, 42),
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          if (statusLabel != null)
+            _BookingStatusBadge(label: statusLabel)
+          else if (showCancelAction)
+            IconButton(
+              tooltip: 'Cancel booking',
+              onPressed: onCancel,
+              style: IconButton.styleFrom(
+                foregroundColor: colors.action,
+                minimumSize: const Size(42, 42),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              icon: const Icon(Icons.close_rounded, size: 22),
             ),
-            icon: const Icon(Icons.close_rounded, size: 22),
-          ),
         ],
+      ),
+    );
+  }
+
+  String? _statusLabel(String status, {required bool includeActive}) {
+    return switch (status) {
+      BookingService.activeStatus when includeActive => 'Confirmed',
+      BookingService.pendingStatus => 'Pending',
+      BookingService.deniedStatus => 'Declined',
+      BookingService.cancelledStatus => 'Cancelled',
+      _ => null,
+    };
+  }
+}
+
+class BookingHistoryPage extends StatelessWidget {
+  const BookingHistoryPage({
+    super.key,
+    required this.user,
+    required this.bookingsRepository,
+  });
+
+  final models.User user;
+  final BookingsRepository bookingsRepository;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+
+    return Scaffold(
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: colors.backgroundGradient,
+          ),
+        ),
+        child: SafeArea(
+          child: ListView(
+            physics: const BouncingScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 32),
+            children: [
+              Row(
+                children: [
+                  IconButton(
+                    tooltip: 'Back',
+                    onPressed: () => Navigator.of(context).pop(),
+                    style: IconButton.styleFrom(
+                      foregroundColor: Colors.white.withValues(alpha: .86),
+                      backgroundColor: colors.glassFill,
+                      minimumSize: const Size(46, 46),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        side: BorderSide(color: colors.glassBorder),
+                      ),
+                    ),
+                    icon: const Icon(Icons.arrow_back_rounded),
+                  ),
+                  const Spacer(),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'Booking History',
+                style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'All your booking requests and their latest status.',
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                  color: Colors.white.withValues(alpha: .62),
+                  height: 1.35,
+                ),
+              ),
+              const SizedBox(height: 24),
+              FutureBuilder<List<StadiumBooking>>(
+                future: bookingsRepository.listBookingHistory(user.$id),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState != ConnectionState.done &&
+                      !snapshot.hasData) {
+                    return const _BookingsStatusCard(
+                      icon: Icons.history_rounded,
+                      title: 'Loading history',
+                      subtitle: 'Fetching your booking history.',
+                    );
+                  }
+
+                  if (snapshot.hasError) {
+                    return const _BookingsStatusCard(
+                      icon: Icons.error_rounded,
+                      title: 'Could not load history',
+                      subtitle: 'Check your connection and try again.',
+                    );
+                  }
+
+                  final bookings = snapshot.data ?? const [];
+                  if (bookings.isEmpty) {
+                    return const _BookingsStatusCard(
+                      icon: Icons.history_rounded,
+                      title: 'No booking history',
+                      subtitle: 'Your requests will appear here after booking.',
+                    );
+                  }
+
+                  return Column(
+                    children: [
+                      for (var index = 0; index < bookings.length; index++)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: _ActiveBookingCard(
+                            booking: bookings[index],
+                            index: index,
+                            onCancel: null,
+                            showCancelAction: false,
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _BookingStatusBadge extends StatelessWidget {
+  const _BookingStatusBadge({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final labelColor = label == 'Pending' ? Colors.amber : colors.selection;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: colors.activeNavFill,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: colors.glassBorder),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: labelColor,
+          fontSize: 12,
+          fontWeight: FontWeight.w900,
+        ),
       ),
     );
   }
@@ -920,7 +1076,7 @@ class _BookingsSegmentedControl extends StatelessWidget {
                 Row(
                   children: [
                     _SegmentButton(
-                      label: 'Active bookings',
+                      label: 'Bookings',
                       isSelected: selectedIndex == 0,
                       onTap: () => onChanged(0),
                     ),
@@ -988,6 +1144,7 @@ class _BookingsFrame extends StatelessWidget {
     required this.selectedSection,
     required this.bookingsFuture,
     required this.favoritesFuture,
+    required this.onOpenHistory,
     required this.onCancelBooking,
     required this.onOpenFavorite,
     required this.onRemoveFavorite,
@@ -999,6 +1156,7 @@ class _BookingsFrame extends StatelessWidget {
   final int selectedSection;
   final Future<List<StadiumBooking>> bookingsFuture;
   final Future<List<FavoriteStadium>> favoritesFuture;
+  final VoidCallback onOpenHistory;
   final ValueChanged<StadiumBooking> onCancelBooking;
   final void Function(FavoriteStadium favorite, int index) onOpenFavorite;
   final ValueChanged<FavoriteStadium> onRemoveFavorite;
@@ -1022,12 +1180,33 @@ class _BookingsFrame extends StatelessWidget {
             physics: const BouncingScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(20, 28, 20, 110),
             children: [
-              Text(
-                title,
-                style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w900,
-                ),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Booking history',
+                    onPressed: onOpenHistory,
+                    style: IconButton.styleFrom(
+                      foregroundColor: colors.selection,
+                      backgroundColor: colors.glassFill,
+                      minimumSize: const Size(46, 46),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        side: BorderSide(color: colors.glassBorder),
+                      ),
+                    ),
+                    icon: const Icon(Icons.history_rounded),
+                  ),
+                ],
               ),
               const SizedBox(height: 8),
               Text(

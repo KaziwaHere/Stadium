@@ -76,7 +76,7 @@ void main() {
     await tester.tap(find.text('Bookings'));
     await tester.pumpAndSettle();
     expect(find.text('My Bookings'), findsOneWidget);
-    expect(find.text('Active bookings'), findsOneWidget);
+    expect(find.text('Bookings'), findsWidgets);
     expect(find.text('Hearted'), findsOneWidget);
     await tester.tap(find.text('Hearted'));
     await tester.pumpAndSettle();
@@ -224,6 +224,11 @@ class _FakeBookingsRepository implements BookingsRepository {
 
   @override
   Future<List<StadiumBooking>> listBookings(String userId) async {
+    return List<StadiumBooking>.of(_bookings);
+  }
+
+  @override
+  Future<List<StadiumBooking>> listBookingHistory(String userId) async {
     return List<StadiumBooking>.of(_bookings);
   }
 }

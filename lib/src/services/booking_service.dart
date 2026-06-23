@@ -9,6 +9,8 @@ import 'package:stadium/src/models/stadium.dart';
 abstract class BookingsRepository {
   Future<List<StadiumBooking>> listBookings(String userId);
 
+  Future<List<StadiumBooking>> listBookingHistory(String userId);
+
   Future<Set<String>> bookedSlotKeys(String stadiumId);
 
   Future<StadiumBooking> createBooking({
@@ -33,7 +35,6 @@ class BookingService implements BookingsRepository {
   static const pendingStatus = 'pending';
   static const deniedStatus = 'denied';
   static const cancelledStatus = 'cancelled';
-  static const _bookingsCacheTtl = Duration(minutes: 3);
   static const _availabilityCacheTtl = Duration(seconds: 45);
 
   final TablesDB _tables;
@@ -45,9 +46,6 @@ class BookingService implements BookingsRepository {
 
   @override
   Future<List<StadiumBooking>> listBookings(String userId) async {
-    final cached = _freshCachedBookings(userId);
-    if (cached != null) return cached;
-
     final existingRequest = _bookingsRequests[userId];
     if (existingRequest != null) return existingRequest;
 
@@ -64,18 +62,40 @@ class BookingService implements BookingsRepository {
   }
 
   Future<List<StadiumBooking>> _fetchBookings(String userId) async {
+    return _fetchBookingsByStatuses(userId, const [
+      activeStatus,
+      pendingStatus,
+      deniedStatus,
+    ]);
+  }
+
+  @override
+  Future<List<StadiumBooking>> listBookingHistory(String userId) {
+    return _fetchBookingsByStatuses(userId, const [
+      activeStatus,
+      pendingStatus,
+      deniedStatus,
+      cancelledStatus,
+    ]);
+  }
+
+  Future<List<StadiumBooking>> _fetchBookingsByStatuses(
+    String userId,
+    List<String> statuses,
+  ) async {
     final rows = await _tables.listRows(
       databaseId: databaseId,
       tableId: tableId,
       queries: [
         Query.equal('userId', userId),
-        Query.equal('status', [activeStatus, pendingStatus]),
+        Query.equal('status', statuses),
         Query.orderAsc('dayDate'),
         Query.orderAsc('slotTime'),
       ],
     );
 
-    return rows.rows.map(StadiumBooking.fromRow).toList();
+    return rows.rows.map(StadiumBooking.fromRow).toList()
+      ..sort(_compareBookings);
   }
 
   @override
@@ -104,7 +124,7 @@ class BookingService implements BookingsRepository {
       tableId: bookedSlotsTableId,
       queries: [
         Query.equal('stadiumId', stadiumId),
-        Query.equal('status', activeStatus),
+        Query.equal('status', [activeStatus, pendingStatus]),
         Query.limit(100),
       ],
     );
@@ -142,7 +162,7 @@ class BookingService implements BookingsRepository {
     });
     final booking = StadiumBooking.fromMap(_bookingPayload(payload));
     _appendCachedBooking(userId, booking);
-    if (booking.status == activeStatus) {
+    if (booking.status == activeStatus || booking.status == pendingStatus) {
       _addCachedBookedSlot(stadium.id, booking.slotKey);
     }
     return booking;
@@ -196,12 +216,6 @@ class BookingService implements BookingsRepository {
     return hash.toRadixString(16).padLeft(16, '0');
   }
 
-  List<StadiumBooking>? _freshCachedBookings(String userId) {
-    final cached = _bookingsCache[userId];
-    if (cached == null || cached.isExpired(_bookingsCacheTtl)) return null;
-    return List<StadiumBooking>.of(cached.value);
-  }
-
   Set<String>? _freshCachedAvailability(String stadiumId) {
     final cached = _availabilityCache[stadiumId];
     if (cached == null || cached.isExpired(_availabilityCacheTtl)) return null;
@@ -210,7 +224,7 @@ class BookingService implements BookingsRepository {
 
   void _appendCachedBooking(String userId, StadiumBooking booking) {
     final cached = _bookingsCache[userId];
-    if (cached == null || cached.isExpired(_bookingsCacheTtl)) return;
+    if (cached == null) return;
 
     final bookings = [
       booking,
@@ -245,14 +259,24 @@ class BookingService implements BookingsRepository {
   }
 
   int _compareBookings(StadiumBooking a, StadiumBooking b) {
-    if (a.status != b.status) {
-      if (a.status == pendingStatus) return -1;
-      if (b.status == pendingStatus) return 1;
-    }
+    final statusComparison = _statusRank(
+      a.status,
+    ).compareTo(_statusRank(b.status));
+    if (statusComparison != 0) return statusComparison;
 
     final dayComparison = a.dayDate.compareTo(b.dayDate);
     if (dayComparison != 0) return dayComparison;
     return a.slotTime.compareTo(b.slotTime);
+  }
+
+  int _statusRank(String status) {
+    return switch (status) {
+      activeStatus => 0,
+      pendingStatus => 1,
+      deniedStatus => 2,
+      cancelledStatus => 3,
+      _ => 4,
+    };
   }
 
   Future<Map<String, dynamic>> _executeBookingFunction(
