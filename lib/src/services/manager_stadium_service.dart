@@ -2,6 +2,7 @@ import 'package:appwrite/appwrite.dart';
 import 'package:appwrite/models.dart' as models;
 import 'package:stadium/src/appwrite_client.dart';
 import 'package:stadium/src/models/stadium.dart';
+import 'package:stadium/src/utils/stadium_schedule.dart';
 
 abstract class ManagerStadiumRepository {
   Future<Stadium?> managerStadium(String managerId);
@@ -22,7 +23,6 @@ class ManagerStadiumService implements ManagerStadiumRepository {
   static const databaseId = 'stadium_booking';
   static const tableId = 'stadiums';
   static const _defaultRating = 4.8;
-  static const _defaultAvailable = 'Today, 8:00 PM';
   static const _defaultIconKey = 'stadium';
 
   final TablesDB _tables;
@@ -55,7 +55,7 @@ class ManagerStadiumService implements ManagerStadiumRepository {
       'location': location,
       'price': price,
       'rating': _defaultRating,
-      'available': _defaultAvailable,
+      'available': nextAvailabilityLabel(),
       'icon': _defaultIconKey,
     };
 
@@ -112,46 +112,11 @@ class ManagerStadiumService implements ManagerStadiumRepository {
       location: data['location'].toString(),
       rating: (data['rating'] as num?)?.toDouble() ?? 4.5,
       price: (data['price'] as num?)?.toInt() ?? 50,
-      available: data['available']?.toString() ?? 'Available soon',
+      available: nextAvailabilityLabel(),
       iconKey: data['icon']?.toString() ?? 'stadium',
       icon: stadiumIconFromKey(data['icon']?.toString() ?? 'stadium'),
-      days: _defaultBookingDays,
+      days: buildBookingDays(),
     );
-  }
-
-  List<BookingDay> get _defaultBookingDays {
-    return const [
-      BookingDay(
-        label: 'Today',
-        date: 'Today',
-        slots: [
-          BookingSlot(time: '6:00 PM', isBooked: false),
-          BookingSlot(time: '7:30 PM', isBooked: false),
-          BookingSlot(time: '9:00 PM', isBooked: false),
-          BookingSlot(time: '10:30 PM', isBooked: false),
-        ],
-      ),
-      BookingDay(
-        label: 'Tomorrow',
-        date: 'Tomorrow',
-        slots: [
-          BookingSlot(time: '5:30 PM', isBooked: false),
-          BookingSlot(time: '7:00 PM', isBooked: false),
-          BookingSlot(time: '8:30 PM', isBooked: false),
-          BookingSlot(time: '10:00 PM', isBooked: false),
-        ],
-      ),
-      BookingDay(
-        label: 'Later',
-        date: 'This week',
-        slots: [
-          BookingSlot(time: '6:00 PM', isBooked: false),
-          BookingSlot(time: '7:30 PM', isBooked: false),
-          BookingSlot(time: '9:00 PM', isBooked: false),
-          BookingSlot(time: '10:30 PM', isBooked: false),
-        ],
-      ),
-    ];
   }
 }
 

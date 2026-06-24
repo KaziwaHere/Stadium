@@ -111,6 +111,100 @@ function Ensure-Collection {
     Write-Host "Created table: $Id"
 }
 
+function Ensure-TablesDbDatabase {
+    param([string]$Id, [string]$Name)
+
+    $existing = Invoke-Appwrite -Method "GET" -Path "/tablesdb/$Id"
+    if ($existing) {
+        Write-Host "TablesDB database exists: $Id"
+        return
+    }
+
+    Invoke-Appwrite -Method "POST" -Path "/tablesdb" -Body @{
+        databaseId = $Id
+        name       = $Name
+        enabled    = $true
+    } | Out-Null
+
+    Write-Host "Created TablesDB database: $Id"
+}
+
+function Ensure-TablesDbTable {
+    param(
+        [string]$Id,
+        [string]$Name,
+        [string[]]$Permissions,
+        [bool]$RowSecurity = $false
+    )
+
+    $existing = Invoke-Appwrite -Method "GET" -Path "/tablesdb/$DatabaseId/tables/$Id"
+    if ($existing) {
+        Write-Host "TablesDB table exists: $Id"
+        Invoke-Appwrite -Method "PUT" -Path "/tablesdb/$DatabaseId/tables/$Id" -Body @{
+            name        = $Name
+            permissions = $Permissions
+            rowSecurity = $RowSecurity
+            enabled     = $true
+            purge       = $true
+        } | Out-Null
+        Write-Host "Updated TablesDB table settings: $Id"
+        return
+    }
+
+    Invoke-Appwrite -Method "POST" -Path "/tablesdb/$DatabaseId/tables" -Body @{
+        tableId     = $Id
+        name        = $Name
+        permissions = $Permissions
+        rowSecurity = $RowSecurity
+        enabled     = $true
+        columns     = @()
+        indexes     = @()
+    } | Out-Null
+
+    Write-Host "Created TablesDB table: $Id"
+}
+
+function Wait-TablesDbColumn {
+    param([string]$TableId, [string]$Key)
+
+    for ($attempt = 0; $attempt -lt 30; $attempt++) {
+        $column = Invoke-Appwrite -Method "GET" -Path "/tablesdb/$DatabaseId/tables/$TableId/columns/$Key"
+
+        if ($column -and $column.status -eq "available") {
+            return
+        }
+
+        if ($column -and $column.status -eq "failed") {
+            throw "TablesDB column failed: $TableId.$Key"
+        }
+
+        Start-Sleep -Seconds 1
+    }
+
+    throw "Timed out waiting for TablesDB column: $TableId.$Key"
+}
+
+function Ensure-TablesDbColumn {
+    param(
+        [string]$TableId,
+        [string]$Kind,
+        [hashtable]$Definition
+    )
+
+    $key = $Definition.key
+    $existing = Invoke-Appwrite -Method "GET" -Path "/tablesdb/$DatabaseId/tables/$TableId/columns/$key"
+
+    if ($existing) {
+        Write-Host "TablesDB column exists: $TableId.$key"
+        Wait-TablesDbColumn -TableId $TableId -Key $key
+        return
+    }
+
+    Invoke-Appwrite -Method "POST" -Path "/tablesdb/$DatabaseId/tables/$TableId/columns/$Kind" -Body $Definition | Out-Null
+    Write-Host "Created TablesDB column: $TableId.$key"
+    Wait-TablesDbColumn -TableId $TableId -Key $key
+}
+
 function Wait-Attribute {
     param([string]$CollectionId, [string]$Key)
 
@@ -230,12 +324,14 @@ function Ensure-BookedSlotMarkersFromBookings {
 }
 
 Ensure-Database -Id $DatabaseId -Name "Stadium Booking"
+Ensure-TablesDbDatabase -Id $DatabaseId -Name "Stadium Booking"
 
 Ensure-Collection -Id "stadiums" -Name "Stadiums" -Permissions @('read("any")') -DocumentSecurity $false
 Ensure-Collection -Id "slots" -Name "Slots" -Permissions @('read("any")') -DocumentSecurity $false
 Ensure-Collection -Id "booked_slots" -Name "Booked Slots" -Permissions @('create("users")', 'read("any")') -DocumentSecurity $true
 Ensure-Collection -Id "bookings" -Name "Bookings" -Permissions @('create("users")', 'read("any")') -DocumentSecurity $true
 Ensure-Collection -Id "favorites" -Name "Favorites" -Permissions @('create("users")', 'read("any")') -DocumentSecurity $true
+Ensure-TablesDbTable -Id "contact_details" -Name "Contact Details" -Permissions @('create("label:admin")', 'read("any")', 'update("label:admin")') -RowSecurity $true
 
 Ensure-Attribute -CollectionId "stadiums" -Kind "string" -Definition @{ key = "name"; size = 128; required = $true; array = $false; encrypt = $false }
 Ensure-Attribute -CollectionId "stadiums" -Kind "string" -Definition @{ key = "location"; size = 128; required = $true; array = $false; encrypt = $false }
@@ -278,6 +374,10 @@ Ensure-Attribute -CollectionId "favorites" -Kind "float" -Definition @{ key = "r
 Ensure-Attribute -CollectionId "favorites" -Kind "integer" -Definition @{ key = "price"; required = $true; array = $false }
 Ensure-Attribute -CollectionId "favorites" -Kind "string" -Definition @{ key = "available"; size = 64; required = $true; array = $false; encrypt = $false }
 Ensure-Attribute -CollectionId "favorites" -Kind "string" -Definition @{ key = "icon"; size = 64; required = $true; array = $false; encrypt = $false }
+
+Ensure-TablesDbColumn -TableId "contact_details" -Kind "string" -Definition @{ key = "email"; size = 128; required = $true; array = $false; encrypt = $false }
+Ensure-TablesDbColumn -TableId "contact_details" -Kind "string" -Definition @{ key = "phone"; size = 32; required = $true; array = $false; encrypt = $false }
+Ensure-TablesDbColumn -TableId "contact_details" -Kind "datetime" -Definition @{ key = "updatedAt"; required = $true; array = $false }
 
 Ensure-Index -CollectionId "slots" -Key "stadiumId_index" -Attributes @("stadiumId")
 Ensure-Index -CollectionId "booked_slots" -Key "stadium_status_index" -Attributes @("stadiumId", "status")

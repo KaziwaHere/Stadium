@@ -7,6 +7,7 @@ import 'package:stadium/src/screens/stadium_booking_page.dart';
 import 'package:stadium/src/services/booking_service.dart';
 import 'package:stadium/src/services/favorite_service.dart';
 import 'package:stadium/src/theme/app_theme.dart';
+import 'package:stadium/src/utils/stadium_schedule.dart';
 import 'package:stadium/src/widgets/app_notification.dart';
 
 class BookingsPage extends StatefulWidget {
@@ -263,7 +264,7 @@ class _BookingsPageState extends State<BookingsPage> {
       available: favorite.available,
       iconKey: favorite.iconKey,
       icon: favorite.icon,
-      days: const [],
+      days: buildBookingDays(),
     );
   }
 }

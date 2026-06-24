@@ -552,6 +552,47 @@
                     "orders": []
                 }
             ]
+        },
+        {
+            "$id": "contact_details",
+            "$permissions": [
+                "create(\"label:admin\")",
+                "read(\"any\")",
+                "update(\"label:admin\")"
+            ],
+            "databaseId": "stadium_booking",
+            "name": "Contact Details",
+            "enabled": true,
+            "rowSecurity": true,
+            "columns": [
+                {
+                    "key": "email",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 128,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "phone",
+                    "type": "string",
+                    "required": true,
+                    "array": false,
+                    "size": 32,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "updatedAt",
+                    "type": "datetime",
+                    "required": true,
+                    "array": false,
+                    "default": null,
+                    "format": ""
+                }
+            ],
+            "indexes": []
         }
     ]
 }

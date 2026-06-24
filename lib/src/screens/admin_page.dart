@@ -1,6 +1,7 @@
 import 'package:appwrite/appwrite.dart';
 import 'package:appwrite/models.dart' as models;
 import 'package:flutter/material.dart';
+import 'package:stadium/src/screens/contact_details_page.dart';
 import 'package:stadium/src/services/admin_service.dart';
 import 'package:stadium/src/theme/app_theme.dart';
 
@@ -15,7 +16,7 @@ class AdminPage extends StatefulWidget {
 }
 
 class _AdminPageState extends State<AdminPage> {
-  Future<List<AdminUser>>? _usersFuture;
+  Stream<AdminUsersSnapshot>? _usersStream;
   bool _isViewingUsers = false;
 
   AdminService get _adminRepository => widget.adminRepository ?? adminService;
@@ -89,7 +90,7 @@ class _AdminPageState extends State<AdminPage> {
                 )
               else if (_isViewingUsers)
                 _UsersPanel(
-                  usersFuture: _usersFuture ?? _loadUsers(),
+                  usersStream: _usersStream ?? _watchUsers(),
                   onUserAction: _handleUserAction,
                 )
               else ...[
@@ -99,6 +100,13 @@ class _AdminPageState extends State<AdminPage> {
                   subtitle: 'View all users and their roles',
                   onTap: _openUsers,
                 ),
+                const SizedBox(height: 12),
+                _AdminActionCard(
+                  icon: Icons.contact_phone_rounded,
+                  title: 'Contact details',
+                  subtitle: 'Update admin email and phone',
+                  onTap: _openContactDetails,
+                ),
               ],
             ],
           ),
@@ -107,23 +115,27 @@ class _AdminPageState extends State<AdminPage> {
     );
   }
 
-  Future<List<AdminUser>> _loadUsers() {
-    final usersFuture = _adminRepository.listUsers();
-    _usersFuture = usersFuture;
-    return usersFuture;
+  Stream<AdminUsersSnapshot> _watchUsers() {
+    final usersStream = _adminRepository.watchUsers();
+    _usersStream = usersStream;
+    return usersStream;
   }
 
   void _openUsers() {
     setState(() {
       _isViewingUsers = true;
-      _usersFuture = _adminRepository.listUsers();
+      _usersStream = _adminRepository.watchUsers();
     });
   }
 
   void _refreshUsers() {
-    setState(() {
-      _usersFuture = _adminRepository.listUsers(forceRefresh: true);
-    });
+    _adminRepository.refreshUsers(forceRefresh: true);
+  }
+
+  void _openContactDetails() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (context) => const AdminContactDetailsPage()),
+    );
   }
 
   Future<void> _handleUserAction(AdminUser user, _UserAction action) async {
@@ -152,7 +164,6 @@ class _AdminPageState extends State<AdminPage> {
       }
 
       if (!mounted) return;
-      _refreshUsers();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('User updated successfully.')),
       );
@@ -197,25 +208,25 @@ class _AdminPageState extends State<AdminPage> {
 }
 
 class _UsersPanel extends StatelessWidget {
-  const _UsersPanel({required this.usersFuture, required this.onUserAction});
+  const _UsersPanel({required this.usersStream, required this.onUserAction});
 
-  final Future<List<AdminUser>> usersFuture;
+  final Stream<AdminUsersSnapshot> usersStream;
   final Future<void> Function(AdminUser user, _UserAction action) onUserAction;
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<List<AdminUser>>(
-      future: usersFuture,
+    return StreamBuilder<AdminUsersSnapshot>(
+      stream: usersStream,
       builder: (context, snapshot) {
-        if (snapshot.connectionState != ConnectionState.done) {
+        if (!snapshot.hasData && !snapshot.hasError) {
           return const _AdminStatusCard(
             icon: Icons.groups_rounded,
             title: 'Loading users',
-            subtitle: 'Fetching users from the admin backend.',
+            subtitle: 'Checking local cache and syncing with Appwrite.',
           );
         }
 
-        if (snapshot.hasError) {
+        if (snapshot.hasError && !snapshot.hasData) {
           return _AdminStatusCard(
             icon: Icons.error_rounded,
             title: 'Could not load users',
@@ -223,7 +234,8 @@ class _UsersPanel extends StatelessWidget {
           );
         }
 
-        final users = snapshot.data ?? const [];
+        final usersSnapshot = snapshot.data;
+        final users = usersSnapshot?.users ?? const [];
         if (users.isEmpty) {
           return const _AdminStatusCard(
             icon: Icons.person_off_rounded,
@@ -234,6 +246,13 @@ class _UsersPanel extends StatelessWidget {
 
         return Column(
           children: [
+            if (usersSnapshot != null &&
+                (usersSnapshot.isRefreshing ||
+                    usersSnapshot.isFromCache ||
+                    usersSnapshot.errorMessage != null)) ...[
+              _UsersSyncStatus(snapshot: usersSnapshot),
+              const SizedBox(height: 12),
+            ],
             for (var index = 0; index < users.length; index++) ...[
               _AdminUserCard(
                 user: users[index],
@@ -326,6 +345,65 @@ class _AdminActionCard extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _UsersSyncStatus extends StatelessWidget {
+  const _UsersSyncStatus({required this.snapshot});
+
+  final AdminUsersSnapshot snapshot;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final label = snapshot.errorMessage != null
+        ? 'Showing cached users. Sync failed.'
+        : snapshot.isRefreshing
+        ? 'Showing cached users while syncing...'
+        : snapshot.isFromCache
+        ? 'Showing cached users.'
+        : 'Users are up to date.';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: colors.glassFill,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: colors.glassBorder),
+      ),
+      child: Row(
+        children: [
+          if (snapshot.isRefreshing)
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(colors.selection),
+              ),
+            )
+          else
+            Icon(
+              snapshot.errorMessage != null
+                  ? Icons.cloud_off_rounded
+                  : Icons.cloud_done_rounded,
+              color: colors.selection,
+              size: 18,
+            ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: .68),
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -2,6 +2,7 @@ import 'package:appwrite/appwrite.dart';
 import 'package:appwrite/models.dart' as models;
 import 'package:flutter/material.dart';
 import 'package:stadium/src/screens/admin_page.dart';
+import 'package:stadium/src/screens/contact_details_page.dart';
 import 'package:stadium/src/services/auth_service.dart';
 import 'package:stadium/src/theme/app_theme.dart';
 import 'package:stadium/src/widgets/app_notification.dart';
@@ -98,6 +99,13 @@ class _ProfilePageState extends State<ProfilePage> {
                 icon: Icons.payments_rounded,
                 title: 'Payment methods',
                 subtitle: 'Cards and wallet settings',
+              ),
+              const SizedBox(height: 12),
+              _ProfileOption(
+                icon: Icons.support_agent_rounded,
+                title: 'Contact us',
+                subtitle: 'Admin email and phone number',
+                onTap: _openContactUs,
               ),
               if (_user.labels.contains('admin')) ...[
                 const SizedBox(height: 12),
@@ -200,6 +208,12 @@ class _ProfilePageState extends State<ProfilePage> {
     if (mounted) {
       await _refreshProfile(showError: false);
     }
+  }
+
+  void _openContactUs() {
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (context) => const ContactDetailsPage()));
   }
 
   Future<void> _signOut() async {

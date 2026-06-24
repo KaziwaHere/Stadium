@@ -5,6 +5,7 @@ import 'package:appwrite/models.dart' as models;
 import 'package:flutter/material.dart';
 import 'package:stadium/src/appwrite_client.dart';
 import 'package:stadium/src/models/stadium.dart';
+import 'package:stadium/src/utils/stadium_schedule.dart';
 
 abstract class BookingsRepository {
   Future<List<StadiumBooking>> listBookings(String userId);
@@ -143,6 +144,10 @@ class BookingService implements BookingsRepository {
     required BookingDay day,
     required BookingSlot slot,
   }) async {
+    if (bookingSlotHasPassed(day, slot)) {
+      throw const BookingSlotExpiredException();
+    }
+
     final slotId = _slotId(stadium.id, day.date, slot.time);
 
     final payload = await _executeBookingFunction({
@@ -319,6 +324,10 @@ String bookingSlotKey(String dayDate, String slotTime) {
 
 class BookingSlotUnavailableException implements Exception {
   const BookingSlotUnavailableException();
+}
+
+class BookingSlotExpiredException implements Exception {
+  const BookingSlotExpiredException();
 }
 
 class BookedSlot {
