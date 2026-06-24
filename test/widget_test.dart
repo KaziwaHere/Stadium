@@ -190,6 +190,22 @@ class _FakeBookingsRepository implements BookingsRepository {
   }
 
   @override
+  Future<List<BookedSlot>> bookedSlots(String stadiumId) async {
+    return _bookings
+        .where((booking) => booking.stadiumId == stadiumId)
+        .map(
+          (booking) => BookedSlot(
+            rowId: booking.slotId,
+            stadiumId: booking.stadiumId,
+            dayDate: booking.dayDate,
+            slotTime: booking.slotTime,
+            status: booking.status,
+          ),
+        )
+        .toList();
+  }
+
+  @override
   Future<void> cancelBooking({required StadiumBooking booking}) async {
     _bookings.removeWhere((item) => item.rowId == booking.rowId);
   }
@@ -220,6 +236,49 @@ class _FakeBookingsRepository implements BookingsRepository {
     );
     _bookings.add(booking);
     return booking;
+  }
+
+  @override
+  Future<void> markSlotBookedByManager({
+    required String managerId,
+    required Stadium stadium,
+    required BookingDay day,
+    required BookingSlot slot,
+  }) async {
+    _bookings.add(
+      StadiumBooking(
+        rowId: 'manager_booking_${_bookings.length + 1}',
+        userId: managerId,
+        userName: 'Manager',
+        stadiumId: stadium.id,
+        slotId: '${stadium.id}-${day.date}-${slot.time}',
+        stadiumName: stadium.name,
+        location: stadium.location,
+        rating: stadium.rating,
+        price: stadium.price,
+        iconKey: stadium.iconKey,
+        dayLabel: day.label,
+        dayDate: day.date,
+        slotTime: slot.time,
+        status: BookingService.activeStatus,
+      ),
+    );
+  }
+
+  @override
+  Future<void> unmarkSlotBookedByManager({
+    required String managerId,
+    required Stadium stadium,
+    required BookingDay day,
+    required BookingSlot slot,
+  }) async {
+    _bookings.removeWhere(
+      (booking) =>
+          booking.userId == managerId &&
+          booking.stadiumId == stadium.id &&
+          booking.dayDate == day.date &&
+          booking.slotTime == slot.time,
+    );
   }
 
   @override

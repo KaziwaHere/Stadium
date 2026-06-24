@@ -40,7 +40,6 @@ class StadiumBookingPage extends StatefulWidget {
 
 class _StadiumBookingPageState extends State<StadiumBookingPage> {
   int _selectedDayIndex = 0;
-  _TimePeriod _selectedTimePeriod = _TimePeriod.am;
   BookingSlot? _selectedSlot;
   late bool _isHearted = widget.isHearted;
   final Set<String> _bookedSlotKeys = {};
@@ -59,13 +58,12 @@ class _StadiumBookingPageState extends State<StadiumBookingPage> {
   BookingDay get _selectedDay => widget.stadium.days[_selectedDayIndex];
 
   List<BookingSlot> get _visibleSlots {
-    return _visibleSlotsFor(_selectedDay, _selectedTimePeriod);
+    return _visibleSlotsFor(_selectedDay);
   }
 
   @override
   void initState() {
     super.initState();
-    _selectedTimePeriod = _preferredTimePeriodFor(_selectedDay);
     _startClock();
     _loadBookedSlots();
   }
@@ -137,7 +135,6 @@ class _StadiumBookingPageState extends State<StadiumBookingPage> {
                         onTap: () {
                           setState(() {
                             _selectedDayIndex = index;
-                            _selectedTimePeriod = _preferredTimePeriodFor(day);
                             _selectedSlot = null;
                           });
                         },
@@ -170,19 +167,6 @@ class _StadiumBookingPageState extends State<StadiumBookingPage> {
                   ],
                 ),
                 const SizedBox(height: 12),
-                _TimePeriodSwitch(
-                  selectedPeriod: _selectedTimePeriod,
-                  onChanged: (period) {
-                    setState(() {
-                      _selectedTimePeriod = period;
-                      if (_selectedSlot != null &&
-                          _slotPeriod(_selectedSlot!) != period) {
-                        _selectedSlot = null;
-                      }
-                    });
-                  },
-                ),
-                const SizedBox(height: 12),
                 if (_isLoadingBookedSlots) ...[
                   LinearProgressIndicator(
                     minHeight: 2,
@@ -192,10 +176,7 @@ class _StadiumBookingPageState extends State<StadiumBookingPage> {
                   const SizedBox(height: 12),
                 ],
                 if (_visibleSlots.isEmpty)
-                  _NoUpcomingTimesCard(
-                    colors: colors,
-                    period: _selectedTimePeriod,
-                  )
+                  _NoUpcomingTimesCard(colors: colors)
                 else
                   GridView.builder(
                     shrinkWrap: true,
@@ -445,29 +426,10 @@ class _StadiumBookingPageState extends State<StadiumBookingPage> {
         _bookedSlotKeys.contains(bookingSlotKey(day.label, slot.time));
   }
 
-  List<BookingSlot> _visibleSlotsFor(BookingDay day, _TimePeriod period) {
+  List<BookingSlot> _visibleSlotsFor(BookingDay day) {
     return day.slots
         .where((slot) => !bookingSlotHasPassed(day, slot, now: _now))
-        .where((slot) => _slotPeriod(slot) == period)
         .toList();
-  }
-
-  _TimePeriod _preferredTimePeriodFor(BookingDay day) {
-    if (_visibleSlotsFor(day, _TimePeriod.am).isNotEmpty) {
-      return _TimePeriod.am;
-    }
-
-    if (_visibleSlotsFor(day, _TimePeriod.pm).isNotEmpty) {
-      return _TimePeriod.pm;
-    }
-
-    return _TimePeriod.am;
-  }
-
-  _TimePeriod _slotPeriod(BookingSlot slot) {
-    return slot.time.toUpperCase().endsWith('AM')
-        ? _TimePeriod.am
-        : _TimePeriod.pm;
   }
 
   void _startClock() {
@@ -479,9 +441,6 @@ class _StadiumBookingPageState extends State<StadiumBookingPage> {
         if (_selectedSlot != null &&
             bookingSlotHasPassed(_selectedDay, _selectedSlot!, now: _now)) {
           _selectedSlot = null;
-        }
-        if (_visibleSlotsFor(_selectedDay, _selectedTimePeriod).isEmpty) {
-          _selectedTimePeriod = _preferredTimePeriodFor(_selectedDay);
         }
       });
     });
@@ -541,17 +500,6 @@ class _StadiumBookingPageState extends State<StadiumBookingPage> {
         setState(() => _isUpdatingFavorite = false);
       }
     }
-  }
-}
-
-enum _TimePeriod { am, pm }
-
-extension _TimePeriodLabel on _TimePeriod {
-  String get label {
-    return switch (this) {
-      _TimePeriod.am => 'AM',
-      _TimePeriod.pm => 'PM',
-    };
   }
 }
 
@@ -816,88 +764,10 @@ class _TimeSlotButton extends StatelessWidget {
   }
 }
 
-class _TimePeriodSwitch extends StatelessWidget {
-  const _TimePeriodSwitch({
-    required this.selectedPeriod,
-    required this.onChanged,
-  });
-
-  final _TimePeriod selectedPeriod;
-  final ValueChanged<_TimePeriod> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-
-    return Container(
-      padding: const EdgeInsets.all(5),
-      decoration: BoxDecoration(
-        color: colors.glassFill,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: colors.glassBorder),
-      ),
-      child: Row(
-        children: [
-          for (final period in _TimePeriod.values)
-            Expanded(
-              child: _TimePeriodButton(
-                period: period,
-                isSelected: period == selectedPeriod,
-                onTap: () => onChanged(period),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _TimePeriodButton extends StatelessWidget {
-  const _TimePeriodButton({
-    required this.period,
-    required this.isSelected,
-    required this.onTap,
-  });
-
-  final _TimePeriod period;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        height: 40,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: isSelected ? colors.activeNavFill : Colors.transparent,
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: AnimatedDefaultTextStyle(
-          duration: const Duration(milliseconds: 180),
-          style: TextStyle(
-            color: isSelected
-                ? colors.selection
-                : Colors.white.withValues(alpha: .62),
-            fontWeight: FontWeight.w900,
-          ),
-          child: Text(period.label),
-        ),
-      ),
-    );
-  }
-}
-
 class _NoUpcomingTimesCard extends StatelessWidget {
-  const _NoUpcomingTimesCard({required this.colors, required this.period});
+  const _NoUpcomingTimesCard({required this.colors});
 
   final AppColors colors;
-  final _TimePeriod period;
 
   @override
   Widget build(BuildContext context) {
@@ -917,7 +787,7 @@ class _NoUpcomingTimesCard extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              'No upcoming ${period.label} times left for this day.',
+              'No upcoming times left for this day.',
               style: TextStyle(
                 color: Colors.white.withValues(alpha: .68),
                 fontWeight: FontWeight.w800,

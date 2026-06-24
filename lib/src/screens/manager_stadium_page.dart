@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:appwrite/appwrite.dart';
 import 'package:appwrite/models.dart' as models;
 import 'package:flutter/material.dart';
@@ -5,6 +7,7 @@ import 'package:stadium/src/models/stadium.dart';
 import 'package:stadium/src/services/booking_service.dart';
 import 'package:stadium/src/services/manager_stadium_service.dart';
 import 'package:stadium/src/theme/app_theme.dart';
+import 'package:stadium/src/utils/stadium_schedule.dart';
 import 'package:stadium/src/widgets/app_notification.dart';
 
 class ManagerStadiumPage extends StatefulWidget {
@@ -80,6 +83,7 @@ class _ManagerStadiumPageState extends State<ManagerStadiumPage> {
               }
 
               return _ManagerStadiumDetails(
+                managerId: widget.user.$id,
                 stadium: stadium,
                 bookingsRepository: _bookingsRepository,
               );
@@ -202,10 +206,12 @@ class _ManagerStatusView extends StatelessWidget {
 
 class _ManagerStadiumDetails extends StatelessWidget {
   const _ManagerStadiumDetails({
+    required this.managerId,
     required this.stadium,
     required this.bookingsRepository,
   });
 
+  final String managerId;
   final Stadium stadium;
   final BookingsRepository bookingsRepository;
 
@@ -273,6 +279,7 @@ class _ManagerStadiumDetails extends StatelessWidget {
         ),
         const SizedBox(height: 22),
         _ManagerSchedulePanel(
+          managerId: managerId,
           stadium: stadium,
           bookingsRepository: bookingsRepository,
         ),
@@ -281,14 +288,62 @@ class _ManagerStadiumDetails extends StatelessWidget {
   }
 }
 
-class _ManagerSchedulePanel extends StatelessWidget {
+class _ManagerSchedulePanel extends StatefulWidget {
   const _ManagerSchedulePanel({
+    required this.managerId,
     required this.stadium,
     required this.bookingsRepository,
   });
 
+  final String managerId;
   final Stadium stadium;
   final BookingsRepository bookingsRepository;
+
+  @override
+  State<_ManagerSchedulePanel> createState() => _ManagerSchedulePanelState();
+}
+
+class _ManagerSchedulePanelState extends State<_ManagerSchedulePanel> {
+  int _selectedDayIndex = 0;
+  late Future<List<BookedSlot>> _bookedSlotsFuture = _loadBookedSlots();
+  late DateTime _now = DateTime.now();
+  final Set<String> _blockingSlotKeys = {};
+  Timer? _clockTimer;
+
+  BookingDay get _selectedDay => widget.stadium.days[_selectedDayIndex];
+
+  List<BookingSlot> get _visibleSlots {
+    if (widget.stadium.days.isEmpty) return const [];
+    return _visibleSlotsFor(_selectedDay);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _startClock();
+  }
+
+  @override
+  void didUpdateWidget(_ManagerSchedulePanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.stadium.id != widget.stadium.id ||
+        oldWidget.bookingsRepository != widget.bookingsRepository) {
+      _selectedDayIndex = 0;
+      _bookedSlotsFuture = _loadBookedSlots();
+    } else if (_selectedDayIndex >= widget.stadium.days.length) {
+      _selectedDayIndex = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _clockTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<List<BookedSlot>> _loadBookedSlots() {
+    return widget.bookingsRepository.bookedSlots(widget.stadium.id);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -301,10 +356,13 @@ class _ManagerSchedulePanel extends StatelessWidget {
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: colors.glassBorder),
       ),
-      child: FutureBuilder<Set<String>>(
-        future: bookingsRepository.bookedSlotKeys(stadium.id),
+      child: FutureBuilder<List<BookedSlot>>(
+        future: _bookedSlotsFuture,
         builder: (context, snapshot) {
-          final bookedSlotKeys = snapshot.data ?? const <String>{};
+          final slotsByKey = {
+            for (final slot in snapshot.data ?? const <BookedSlot>[])
+              slot.slotKey: slot,
+          };
 
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -335,7 +393,7 @@ class _ManagerSchedulePanel extends StatelessWidget {
               ),
               const SizedBox(height: 6),
               Text(
-                'Read-only schedule for your stadium.',
+                'Tap an available time to mark it booked.',
                 style: TextStyle(color: Colors.white.withValues(alpha: .62)),
               ),
               const SizedBox(height: 16),
@@ -345,17 +403,99 @@ class _ManagerSchedulePanel extends StatelessWidget {
                   title: 'Could not load booked times',
                   subtitle: 'Check your connection and try again.',
                 )
-              else if (stadium.days.isEmpty)
+              else if (widget.stadium.days.isEmpty)
                 const _ScheduleStatus(
                   icon: Icons.access_time_rounded,
                   title: 'No times set',
                   subtitle: 'Users will see times here when slots are added.',
                 )
-              else
-                for (final day in stadium.days) ...[
-                  _ManagerScheduleDay(day: day, bookedSlotKeys: bookedSlotKeys),
-                  if (day != stadium.days.last) const SizedBox(height: 16),
-                ],
+              else ...[
+                SizedBox(
+                  height: 92,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    physics: const BouncingScrollPhysics(),
+                    itemBuilder: (context, index) {
+                      final day = widget.stadium.days[index];
+                      return _ManagerDayChip(
+                        day: day,
+                        isSelected: index == _selectedDayIndex,
+                        onTap: () {
+                          setState(() {
+                            _selectedDayIndex = index;
+                          });
+                        },
+                      );
+                    },
+                    separatorBuilder: (context, index) =>
+                        const SizedBox(width: 10),
+                    itemCount: widget.stadium.days.length,
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Times',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: .86),
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      '${_selectedDay.label}, ${_selectedDay.date}',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: .58),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                if (_visibleSlots.isEmpty)
+                  _ScheduleStatus(
+                    icon: Icons.access_time_filled_rounded,
+                    title: 'No upcoming times left',
+                    subtitle: 'Choose another day.',
+                  )
+                else
+                  GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: _visibleSlots.length,
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          crossAxisSpacing: 10,
+                          mainAxisSpacing: 10,
+                          childAspectRatio: 2.55,
+                        ),
+                    itemBuilder: (context, index) {
+                      final slot = _visibleSlots[index];
+                      final bookedSlot =
+                          slotsByKey[bookingSlotKey(
+                            _selectedDay.date,
+                            slot.time,
+                          )];
+
+                      return _ManagerTimeSlot(
+                        slot: slot,
+                        status: bookedSlot?.status,
+                        isProcessing: _blockingSlotKeys.contains(
+                          bookingSlotKey(_selectedDay.date, slot.time),
+                        ),
+                        onTap: switch (bookedSlot?.status) {
+                          null => () => _markSlotBooked(_selectedDay, slot),
+                          BookingService.activeStatus =>
+                            () => _unmarkSlotBooked(_selectedDay, slot),
+                          _ => null,
+                        },
+                      );
+                    },
+                  ),
+              ],
               const SizedBox(height: 16),
               const _ManagerScheduleLegend(),
             ],
@@ -364,96 +504,299 @@ class _ManagerSchedulePanel extends StatelessWidget {
       ),
     );
   }
-}
 
-class _ManagerScheduleDay extends StatelessWidget {
-  const _ManagerScheduleDay({required this.day, required this.bookedSlotKeys});
+  List<BookingSlot> _visibleSlotsFor(BookingDay day) {
+    return day.slots
+        .where((slot) => !bookingSlotHasPassed(day, slot, now: _now))
+        .toList();
+  }
 
-  final BookingDay day;
-  final Set<String> bookedSlotKeys;
+  void _startClock() {
+    _clockTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (!mounted || widget.stadium.days.isEmpty) return;
 
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          '${day.label}, ${day.date}',
-          style: TextStyle(
-            color: Colors.white.withValues(alpha: .86),
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-        const SizedBox(height: 10),
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          itemCount: day.slots.length,
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            crossAxisSpacing: 10,
-            mainAxisSpacing: 10,
-            childAspectRatio: 2.55,
-          ),
-          itemBuilder: (context, index) {
-            final slot = day.slots[index];
-            final isBooked = bookedSlotKeys.contains(
-              bookingSlotKey(day.date, slot.time),
-            );
+      setState(() {
+        _now = DateTime.now();
+      });
+    });
+  }
 
-            return _ManagerTimeSlot(slot: slot, isBooked: isBooked);
-          },
-        ),
-      ],
-    );
+  Future<void> _markSlotBooked(BookingDay day, BookingSlot slot) async {
+    final slotKey = bookingSlotKey(day.date, slot.time);
+    if (_blockingSlotKeys.contains(slotKey)) return;
+
+    setState(() => _blockingSlotKeys.add(slotKey));
+    try {
+      await widget.bookingsRepository.markSlotBookedByManager(
+        managerId: widget.managerId,
+        stadium: widget.stadium,
+        day: day,
+        slot: slot,
+      );
+      if (!mounted) return;
+
+      showAppNotification(
+        context,
+        title: 'Time marked booked',
+        message: '${day.label} at ${slot.time} is no longer available.',
+        type: AppNotificationType.success,
+      );
+      setState(() {
+        _bookedSlotsFuture = _loadBookedSlots();
+      });
+    } on BookingSlotUnavailableException {
+      if (!mounted) return;
+
+      showAppNotification(
+        context,
+        title: 'Time unavailable',
+        message: 'That time is already booked.',
+        type: AppNotificationType.warning,
+      );
+      setState(() {
+        _bookedSlotsFuture = _loadBookedSlots();
+      });
+    } on BookingSlotExpiredException {
+      if (!mounted) return;
+
+      showAppNotification(
+        context,
+        title: 'Time has passed',
+        message: 'Choose an upcoming time.',
+        type: AppNotificationType.warning,
+      );
+    } on AppwriteException catch (error) {
+      if (!mounted) return;
+
+      showAppNotification(
+        context,
+        title: 'Could not mark time',
+        message: error.message ?? 'Please try again.',
+        type: AppNotificationType.error,
+      );
+    } on BookingServiceException catch (error) {
+      if (!mounted) return;
+
+      showAppNotification(
+        context,
+        title: 'Could not mark time',
+        message: error.message,
+        type: AppNotificationType.error,
+      );
+    } catch (_) {
+      if (!mounted) return;
+
+      showAppNotification(
+        context,
+        title: 'Could not mark time',
+        message: 'Please try again.',
+        type: AppNotificationType.error,
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _blockingSlotKeys.remove(slotKey));
+      }
+    }
+  }
+
+  Future<void> _unmarkSlotBooked(BookingDay day, BookingSlot slot) async {
+    final slotKey = bookingSlotKey(day.date, slot.time);
+    if (_blockingSlotKeys.contains(slotKey)) return;
+
+    setState(() => _blockingSlotKeys.add(slotKey));
+    try {
+      await widget.bookingsRepository.unmarkSlotBookedByManager(
+        managerId: widget.managerId,
+        stadium: widget.stadium,
+        day: day,
+        slot: slot,
+      );
+      if (!mounted) return;
+
+      showAppNotification(
+        context,
+        title: 'Time marked available',
+        message: '${day.label} at ${slot.time} can be booked again.',
+        type: AppNotificationType.success,
+      );
+      setState(() {
+        _bookedSlotsFuture = _loadBookedSlots();
+      });
+    } on BookingSlotUnavailableException {
+      if (!mounted) return;
+
+      showAppNotification(
+        context,
+        title: 'Cannot unblock time',
+        message: 'This time belongs to a user booking or pending request.',
+        type: AppNotificationType.warning,
+      );
+      setState(() {
+        _bookedSlotsFuture = _loadBookedSlots();
+      });
+    } on AppwriteException catch (error) {
+      if (!mounted) return;
+
+      showAppNotification(
+        context,
+        title: 'Could not unblock time',
+        message: error.message ?? 'Please try again.',
+        type: AppNotificationType.error,
+      );
+    } on BookingServiceException catch (error) {
+      if (!mounted) return;
+
+      showAppNotification(
+        context,
+        title: 'Could not unblock time',
+        message: error.message,
+        type: AppNotificationType.error,
+      );
+    } catch (_) {
+      if (!mounted) return;
+
+      showAppNotification(
+        context,
+        title: 'Could not unblock time',
+        message: 'Please try again.',
+        type: AppNotificationType.error,
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _blockingSlotKeys.remove(slotKey));
+      }
+    }
   }
 }
 
 class _ManagerTimeSlot extends StatelessWidget {
-  const _ManagerTimeSlot({required this.slot, required this.isBooked});
+  const _ManagerTimeSlot({
+    required this.slot,
+    required this.status,
+    required this.isProcessing,
+    required this.onTap,
+  });
 
   final BookingSlot slot;
-  final bool isBooked;
+  final String? status;
+  final bool isProcessing;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final isPending = status == BookingService.pendingStatus;
+    final isAccepted = status == BookingService.activeStatus;
+    final label = switch (status) {
+      BookingService.pendingStatus => 'Pending',
+      BookingService.activeStatus => 'Booked',
+      _ => 'Available',
+    };
+    final highlightColor = isPending ? Colors.amber : colors.action;
+
+    return GestureDetector(
+      onTap: isProcessing ? null : onTap,
+      child: Container(
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: isAccepted || isPending
+              ? highlightColor.withValues(alpha: .12)
+              : colors.glassFill,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: isAccepted || isPending
+                ? highlightColor.withValues(alpha: .56)
+                : colors.glassBorder,
+          ),
+        ),
+        child: isProcessing
+            ? SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(colors.selection),
+                ),
+              )
+            : Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    slot.time,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: isAccepted || isPending
+                          ? highlightColor
+                          : Colors.white.withValues(alpha: .52),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+      ),
+    );
+  }
+}
+
+class _ManagerDayChip extends StatelessWidget {
+  const _ManagerDayChip({
+    required this.day,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  final BookingDay day;
+  final bool isSelected;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
 
-    return Container(
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: isBooked
-            ? colors.action.withValues(alpha: .12)
-            : colors.glassFill,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: isBooked
-              ? colors.action.withValues(alpha: .56)
-              : colors.glassBorder,
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        width: 96,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        decoration: BoxDecoration(
+          color: isSelected ? colors.activeNavFill : colors.glassFill,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isSelected ? colors.selection : colors.glassBorder,
+          ),
         ),
-      ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            slot.time,
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w900,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              day.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: isSelected ? colors.selection : Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w900,
+              ),
             ),
-          ),
-          const SizedBox(height: 3),
-          Text(
-            isBooked ? 'Booked' : 'Available',
-            style: TextStyle(
-              color: isBooked
-                  ? colors.action
-                  : Colors.white.withValues(alpha: .52),
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
+            const SizedBox(height: 4),
+            Text(
+              day.date,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: .54),
+                fontSize: 12,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -471,6 +814,7 @@ class _ManagerScheduleLegend extends StatelessWidget {
       runSpacing: 8,
       children: [
         _LegendDot(color: colors.glassBorder, label: 'Available'),
+        _LegendDot(color: Colors.amber, label: 'Pending'),
         _LegendDot(color: colors.action, label: 'Booked'),
       ],
     );

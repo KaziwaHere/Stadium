@@ -11,16 +11,16 @@ void main() {
     expect(days[1].label, 'Tomorrow');
     expect(days[1].date, '2026-06-25');
     expect(days.last.date, '2026-06-29');
-    expect(days.first.slots, hasLength(24));
-    expect(days.first.slots.first.time, '12:00 AM');
-    expect(days.first.slots[6].time, '6:00 AM');
-    expect(days.first.slots[12].time, '12:00 PM');
-    expect(days.first.slots.last.time, '11:00 PM');
+    expect(days.first.slots, hasLength(9));
+    expect(days.first.slots.first.time, '4:00 PM');
+    expect(days.first.slots[2].time, '6:00 PM');
+    expect(days.first.slots[7].time, '11:00 PM');
+    expect(days.first.slots.last.time, '12:00 AM');
   });
 
   test('bookingSlotHasPassed follows the current local time', () {
     final day = buildBookingDays(now: DateTime(2026, 6, 24, 17, 0)).first;
-    final sixPmSlot = day.slots[18];
+    final sixPmSlot = day.slots[2];
 
     expect(
       bookingSlotHasPassed(day, sixPmSlot, now: DateTime(2026, 6, 24, 17, 59)),
@@ -28,6 +28,20 @@ void main() {
     );
     expect(
       bookingSlotHasPassed(day, sixPmSlot, now: DateTime(2026, 6, 24, 18, 0)),
+      isTrue,
+    );
+
+    final midnightSlot = day.slots.last;
+    expect(
+      bookingSlotHasPassed(
+        day,
+        midnightSlot,
+        now: DateTime(2026, 6, 24, 23, 59),
+      ),
+      isFalse,
+    );
+    expect(
+      bookingSlotHasPassed(day, midnightSlot, now: DateTime(2026, 6, 25, 0, 0)),
       isTrue,
     );
   });
@@ -39,7 +53,7 @@ void main() {
     );
     expect(
       nextAvailabilityLabel(now: DateTime(2026, 6, 24, 23, 0)),
-      'Tomorrow, 12:00 AM',
+      'Today, 12:00 AM',
     );
   });
 }

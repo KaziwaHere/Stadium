@@ -7,16 +7,34 @@ import 'package:stadium/src/appwrite_client.dart';
 import 'package:stadium/src/models/stadium.dart';
 import 'package:stadium/src/utils/stadium_schedule.dart';
 
+const _firstBookingSlotStartMinutes = 16 * 60;
+
 abstract class BookingsRepository {
   Future<List<StadiumBooking>> listBookings(String userId);
 
   Future<List<StadiumBooking>> listBookingHistory(String userId);
+
+  Future<List<BookedSlot>> bookedSlots(String stadiumId);
 
   Future<Set<String>> bookedSlotKeys(String stadiumId);
 
   Future<StadiumBooking> createBooking({
     required String userId,
     required String userName,
+    required Stadium stadium,
+    required BookingDay day,
+    required BookingSlot slot,
+  });
+
+  Future<void> markSlotBookedByManager({
+    required String managerId,
+    required Stadium stadium,
+    required BookingDay day,
+    required BookingSlot slot,
+  });
+
+  Future<void> unmarkSlotBookedByManager({
+    required String managerId,
     required Stadium stadium,
     required BookingDay day,
     required BookingSlot slot,
@@ -63,21 +81,30 @@ class BookingService implements BookingsRepository {
   }
 
   Future<List<StadiumBooking>> _fetchBookings(String userId) async {
-    return _fetchBookingsByStatuses(userId, const [
-      activeStatus,
-      pendingStatus,
-      deniedStatus,
-    ]);
-  }
-
-  @override
-  Future<List<StadiumBooking>> listBookingHistory(String userId) {
-    return _fetchBookingsByStatuses(userId, const [
+    final bookings = await _fetchBookingsByStatuses(userId, const [
       activeStatus,
       pendingStatus,
       deniedStatus,
       cancelledStatus,
     ]);
+    final now = DateTime.now();
+    return bookings
+        .where((booking) => _belongsInActiveBookings(booking, now: now))
+        .toList();
+  }
+
+  @override
+  Future<List<StadiumBooking>> listBookingHistory(String userId) async {
+    final bookings = await _fetchBookingsByStatuses(userId, const [
+      activeStatus,
+      pendingStatus,
+      deniedStatus,
+      cancelledStatus,
+    ]);
+    final now = DateTime.now();
+    return bookings
+        .where((booking) => _belongsInBookingHistory(booking, now: now))
+        .toList();
   }
 
   Future<List<StadiumBooking>> _fetchBookingsByStatuses(
@@ -119,7 +146,17 @@ class BookingService implements BookingsRepository {
     }
   }
 
+  @override
+  Future<List<BookedSlot>> bookedSlots(String stadiumId) async {
+    return _fetchBookedSlots(stadiumId);
+  }
+
   Future<Set<String>> _fetchBookedSlotKeys(String stadiumId) async {
+    final slots = await _fetchBookedSlots(stadiumId);
+    return slots.map((slot) => slot.slotKey).toSet();
+  }
+
+  Future<List<BookedSlot>> _fetchBookedSlots(String stadiumId) async {
     final rows = await _tables.listRows(
       databaseId: databaseId,
       tableId: bookedSlotsTableId,
@@ -130,10 +167,7 @@ class BookingService implements BookingsRepository {
       ],
     );
 
-    return rows.rows
-        .map(BookedSlot.fromRow)
-        .map((slot) => slot.slotKey)
-        .toSet();
+    return rows.rows.map(BookedSlot.fromRow).toList();
   }
 
   @override
@@ -174,31 +208,56 @@ class BookingService implements BookingsRepository {
   }
 
   @override
-  Future<void> cancelBooking({required StadiumBooking booking}) async {
-    await _tables.updateRow(
-      databaseId: databaseId,
-      tableId: tableId,
-      rowId: booking.rowId,
-      data: {'status': cancelledStatus},
-    );
+  Future<void> markSlotBookedByManager({
+    required String managerId,
+    required Stadium stadium,
+    required BookingDay day,
+    required BookingSlot slot,
+  }) async {
+    if (bookingSlotHasPassed(day, slot)) {
+      throw const BookingSlotExpiredException();
+    }
 
-    await _deleteBookedSlotMarker(booking.slotId);
-    _removeCachedBooking(booking);
-    _removeCachedBookedSlot(booking.stadiumId, booking.slotKey);
+    final slotId = _slotId(stadium.id, day.date, slot.time);
+    await _executeBookingFunction({
+      'action': 'managerBlockSlot',
+      'userId': managerId,
+      'stadiumId': stadium.id,
+      'slotId': slotId,
+      'dayDate': day.date,
+      'slotTime': slot.time,
+    });
+    _addCachedBookedSlot(stadium.id, bookingSlotKey(day.date, slot.time));
   }
 
-  Future<void> _deleteBookedSlotMarker(String slotId) async {
-    try {
-      await _tables.deleteRow(
-        databaseId: databaseId,
-        tableId: bookedSlotsTableId,
-        rowId: slotId,
-      );
-    } on AppwriteException catch (error) {
-      if (error.code != 404) {
-        rethrow;
-      }
-    }
+  @override
+  Future<void> unmarkSlotBookedByManager({
+    required String managerId,
+    required Stadium stadium,
+    required BookingDay day,
+    required BookingSlot slot,
+  }) async {
+    final slotId = _slotId(stadium.id, day.date, slot.time);
+    await _executeBookingFunction({
+      'action': 'managerUnblockSlot',
+      'userId': managerId,
+      'stadiumId': stadium.id,
+      'slotId': slotId,
+      'dayDate': day.date,
+      'slotTime': slot.time,
+    });
+    _removeCachedBookedSlot(stadium.id, bookingSlotKey(day.date, slot.time));
+  }
+
+  @override
+  Future<void> cancelBooking({required StadiumBooking booking}) async {
+    await _executeBookingFunction({
+      'action': 'cancelBookingRequest',
+      'userId': booking.userId,
+      'requestId': booking.rowId,
+    });
+    _removeCachedBooking(booking);
+    _removeCachedBookedSlot(booking.stadiumId, booking.slotKey);
   }
 
   String _slotId(String stadiumId, String dayDate, String slotTime) {
@@ -284,6 +343,24 @@ class BookingService implements BookingsRepository {
     };
   }
 
+  bool _belongsInActiveBookings(StadiumBooking booking, {DateTime? now}) {
+    if (booking.isToday(now: now)) return true;
+    if (booking.status == pendingStatus) return true;
+    return booking.status == activeStatus && !booking.isBeforeToday(now: now);
+  }
+
+  bool _belongsInBookingHistory(StadiumBooking booking, {DateTime? now}) {
+    if (booking.status == deniedStatus || booking.status == cancelledStatus) {
+      return !booking.isToday(now: now);
+    }
+
+    if (booking.status == activeStatus) {
+      return booking.isBeforeToday(now: now);
+    }
+
+    return false;
+  }
+
   Future<Map<String, dynamic>> _executeBookingFunction(
     Map<String, dynamic> payload,
   ) async {
@@ -363,6 +440,8 @@ class BookedSlot {
 abstract class ManagerBookingRequestsRepository {
   Future<List<StadiumBooking>> listPendingRequests(String managerId);
 
+  Future<List<StadiumBooking>> listRequestHistory(String managerId);
+
   Future<StadiumBooking> acceptRequest({
     required String managerId,
     required StadiumBooking request,
@@ -391,6 +470,26 @@ class ManagerBookingRequestsService
         Query.equal('status', BookingService.pendingStatus),
         Query.orderAsc('dayDate'),
         Query.orderAsc('slotTime'),
+      ],
+    );
+
+    return rows.rows.map(StadiumBooking.fromRow).toList();
+  }
+
+  @override
+  Future<List<StadiumBooking>> listRequestHistory(String managerId) async {
+    final rows = await _tables.listRows(
+      databaseId: BookingService.databaseId,
+      tableId: BookingService.tableId,
+      queries: [
+        Query.equal('stadiumId', managerId),
+        Query.equal('status', const [
+          BookingService.activeStatus,
+          BookingService.pendingStatus,
+          BookingService.deniedStatus,
+        ]),
+        Query.orderDesc('dayDate'),
+        Query.orderDesc('slotTime'),
       ],
     );
 
@@ -569,6 +668,92 @@ class StadiumBooking {
   IconData get icon => stadiumIconFromKey(iconKey);
 
   String get slotKey => bookingSlotKey(dayDate, slotTime);
+
+  DateTime? get date => _parseBookingDate(dayDate);
+
+  DateTime? get startsAt {
+    final bookingDate = date;
+    final minutes = _parseBookingTime(slotTime);
+    if (bookingDate == null || minutes == null) return null;
+
+    final slotDate = minutes < _firstBookingSlotStartMinutes
+        ? bookingDate.add(const Duration(days: 1))
+        : bookingDate;
+
+    return DateTime(
+      slotDate.year,
+      slotDate.month,
+      slotDate.day,
+      minutes ~/ 60,
+      minutes % 60,
+    );
+  }
+
+  DateTime? get endsAt {
+    final start = startsAt;
+    if (start == null) return null;
+    return start.add(const Duration(hours: 1));
+  }
+
+  bool isToday({DateTime? now}) {
+    final bookingDate = date;
+    if (bookingDate == null) return false;
+
+    return _isSameDate(bookingDate, now ?? DateTime.now());
+  }
+
+  bool isBeforeToday({DateTime? now}) {
+    final bookingDate = date;
+    if (bookingDate == null) return false;
+
+    return bookingDate.isBefore(_startOfDay(now ?? DateTime.now()));
+  }
+
+  bool isOver({DateTime? now}) {
+    final slotEndsAt = endsAt;
+    if (slotEndsAt == null) return false;
+
+    return !slotEndsAt.isAfter(now ?? DateTime.now());
+  }
+}
+
+DateTime _startOfDay(DateTime value) {
+  return DateTime(value.year, value.month, value.day);
+}
+
+bool _isSameDate(DateTime a, DateTime b) {
+  return a.year == b.year && a.month == b.month && a.day == b.day;
+}
+
+DateTime? _parseBookingDate(String value) {
+  final parts = value.split('-');
+  if (parts.length != 3) return null;
+
+  final year = int.tryParse(parts[0]);
+  final month = int.tryParse(parts[1]);
+  final day = int.tryParse(parts[2]);
+  if (year == null || month == null || day == null) return null;
+
+  return DateTime(year, month, day);
+}
+
+int? _parseBookingTime(String value) {
+  final match = RegExp(
+    r'^(\d{1,2}):(\d{2})\s*(AM|PM)$',
+    caseSensitive: false,
+  ).firstMatch(value.trim());
+  if (match == null) return null;
+
+  var hour = int.tryParse(match.group(1)!);
+  final minute = int.tryParse(match.group(2)!);
+  final period = match.group(3)!.toUpperCase();
+  if (hour == null || minute == null) return null;
+  if (hour < 1 || hour > 12 || minute < 0 || minute > 59) return null;
+
+  if (period == 'AM' && hour == 12) hour = 0;
+  if (period == 'PM' && hour != 12) hour += 12;
+
+  return hour * 60 + minute;
 }
 
 final BookingsRepository bookingService = BookingService(

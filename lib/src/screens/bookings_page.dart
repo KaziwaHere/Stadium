@@ -192,10 +192,7 @@ class _BookingsPageState extends State<BookingsPage> {
     try {
       await _bookingsRepository.cancelBooking(booking: booking);
       setState(() {
-        _bookingsFuture = _bookingsFuture.then(
-          (bookings) =>
-              bookings.where((item) => item.rowId != booking.rowId).toList(),
-        );
+        _bookingsFuture = _loadBookings();
       });
       _ignoreNextBookingsChange = true;
       widget.onBookingsChanged?.call();
@@ -204,7 +201,7 @@ class _BookingsPageState extends State<BookingsPage> {
       showAppNotification(
         context,
         title: 'Booking canceled',
-        message: '${booking.stadiumName} was removed from your bookings.',
+        message: '${booking.stadiumName} was cancelled.',
         type: AppNotificationType.success,
       );
     } catch (error) {
@@ -379,7 +376,9 @@ class _BookingListItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final canCancel = booking.status == BookingService.activeStatus;
+    final canCancel =
+        (booking.status == BookingService.activeStatus && !booking.isOver()) ||
+        booking.status == BookingService.pendingStatus;
 
     return Column(
       children: [
@@ -435,10 +434,7 @@ class _ActiveBookingCard extends StatelessWidget {
     final colors = context.appColors;
     final gradient =
         colors.stadiumGradients[index % colors.stadiumGradients.length];
-    final statusLabel = _statusLabel(
-      booking.status,
-      includeActive: !showCancelAction,
-    );
+    final statusLabel = _statusLabel(booking, includeActive: !showCancelAction);
 
     return Container(
       padding: const EdgeInsets.all(12),
@@ -506,9 +502,10 @@ class _ActiveBookingCard extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 10),
-          if (statusLabel != null)
-            _BookingStatusBadge(label: statusLabel)
-          else if (showCancelAction)
+          if (statusLabel != null) _BookingStatusBadge(label: statusLabel),
+          if (statusLabel != null && showCancelAction && onCancel != null)
+            const SizedBox(width: 6),
+          if (showCancelAction && onCancel != null)
             IconButton(
               tooltip: 'Cancel booking',
               onPressed: onCancel,
@@ -524,8 +521,12 @@ class _ActiveBookingCard extends StatelessWidget {
     );
   }
 
-  String? _statusLabel(String status, {required bool includeActive}) {
-    return switch (status) {
+  String? _statusLabel(StadiumBooking booking, {required bool includeActive}) {
+    if (booking.status == BookingService.activeStatus && booking.isOver()) {
+      return 'Over';
+    }
+
+    return switch (booking.status) {
       BookingService.activeStatus when includeActive => 'Confirmed',
       BookingService.pendingStatus => 'Pending',
       BookingService.deniedStatus => 'Declined',

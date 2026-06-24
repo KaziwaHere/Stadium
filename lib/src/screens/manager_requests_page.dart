@@ -40,59 +40,100 @@ class _ManagerRequestsPageState extends State<ManagerRequestsPage> {
           ),
         ),
         child: SafeArea(
-          child: FutureBuilder<List<StadiumBooking>>(
-            future: _requestsFuture,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState != ConnectionState.done) {
-                return const Center(child: CircularProgressIndicator());
-              }
+          child: RefreshIndicator(
+            onRefresh: () async => _refresh(),
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(
+                parent: BouncingScrollPhysics(),
+              ),
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 120),
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Requests',
+                        style: Theme.of(context).textTheme.headlineSmall
+                            ?.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w900,
+                            ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Request history',
+                      onPressed: _openRequestHistory,
+                      style: IconButton.styleFrom(
+                        foregroundColor: colors.selection,
+                        backgroundColor: colors.glassFill,
+                        minimumSize: const Size(46, 46),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                          side: BorderSide(color: colors.glassBorder),
+                        ),
+                      ),
+                      icon: const Icon(Icons.history_rounded),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Accept or deny pending booking requests.',
+                  style: TextStyle(color: Colors.white.withValues(alpha: .68)),
+                ),
+                const SizedBox(height: 18),
+                FutureBuilder<List<StadiumBooking>>(
+                  future: _requestsFuture,
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState != ConnectionState.done) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
 
-              if (snapshot.hasError) {
-                return _RequestsStatusCard(
-                  icon: Icons.error_outline_rounded,
-                  title: 'Could not load requests',
-                  subtitle: _errorMessage(snapshot.error),
-                  actionLabel: 'Retry',
-                  onAction: _refresh,
-                );
-              }
+                    if (snapshot.hasError) {
+                      return _RequestsStatusCard(
+                        icon: Icons.error_outline_rounded,
+                        title: 'Could not load requests',
+                        subtitle: _errorMessage(snapshot.error),
+                        actionLabel: 'Retry',
+                        onAction: _refresh,
+                      );
+                    }
 
-              final requests = snapshot.data ?? const [];
-              if (requests.isEmpty) {
-                return _RequestsStatusCard(
-                  icon: Icons.inbox_rounded,
-                  title: 'No pending requests',
-                  subtitle:
-                      'When users request bookings for your stadium, they will appear here.',
-                  actionLabel: 'Refresh',
-                  onAction: _refresh,
-                );
-              }
+                    final requests = snapshot.data ?? const [];
+                    if (requests.isEmpty) {
+                      return _RequestsStatusCard(
+                        icon: Icons.inbox_rounded,
+                        title: 'No pending requests',
+                        subtitle:
+                            'When users request bookings for your stadium, they will appear here.',
+                        actionLabel: 'Refresh',
+                        onAction: _refresh,
+                      );
+                    }
 
-              return RefreshIndicator(
-                onRefresh: () async => _refresh(),
-                child: ListView.separated(
-                  physics: const AlwaysScrollableScrollPhysics(
-                    parent: BouncingScrollPhysics(),
-                  ),
-                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 120),
-                  itemCount: requests.length,
-                  separatorBuilder: (context, index) =>
-                      const SizedBox(height: 12),
-                  itemBuilder: (context, index) {
-                    final request = requests[index];
-                    final isProcessing = _processingIds.contains(request.rowId);
-
-                    return _RequestCard(
-                      request: request,
-                      isProcessing: isProcessing,
-                      onAccept: () => _accept(request),
-                      onDeny: () => _deny(request),
+                    return Column(
+                      children: [
+                        for (var index = 0; index < requests.length; index++)
+                          Padding(
+                            padding: EdgeInsets.only(
+                              bottom: index == requests.length - 1 ? 0 : 12,
+                            ),
+                            child: _RequestCard(
+                              request: requests[index],
+                              isProcessing: _processingIds.contains(
+                                requests[index].rowId,
+                              ),
+                              onAccept: () => _accept(requests[index]),
+                              onDeny: () => _deny(requests[index]),
+                            ),
+                          ),
+                      ],
                     );
                   },
                 ),
-              );
-            },
+              ],
+            ),
           ),
         ),
       ),
@@ -111,6 +152,17 @@ class _ManagerRequestsPageState extends State<ManagerRequestsPage> {
     setState(() {
       _requestsFuture = _loadRequests();
     });
+  }
+
+  void _openRequestHistory() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => ManagerRequestHistoryPage(
+          managerId: widget.user.$id,
+          repository: _repository,
+        ),
+      ),
+    );
   }
 
   Future<void> _accept(StadiumBooking request) async {
@@ -244,19 +296,20 @@ class _ManagerRequestsPageState extends State<ManagerRequestsPage> {
 class _RequestCard extends StatelessWidget {
   const _RequestCard({
     required this.request,
-    required this.isProcessing,
-    required this.onAccept,
-    required this.onDeny,
+    this.isProcessing = false,
+    this.onAccept,
+    this.onDeny,
   });
 
   final StadiumBooking request;
   final bool isProcessing;
-  final VoidCallback onAccept;
-  final VoidCallback onDeny;
+  final VoidCallback? onAccept;
+  final VoidCallback? onDeny;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final showActions = onAccept != null && onDeny != null;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -289,30 +342,191 @@ class _RequestCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          Row(
+          if (showActions)
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: isProcessing ? null : onDeny,
+                    child: const Text('Deny'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: isProcessing ? null : onAccept,
+                    child: isProcessing
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Accept'),
+                  ),
+                ),
+              ],
+            )
+          else
+            Align(
+              alignment: Alignment.centerLeft,
+              child: _RequestStatusBadge(status: request.status),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class ManagerRequestHistoryPage extends StatelessWidget {
+  const ManagerRequestHistoryPage({
+    super.key,
+    required this.managerId,
+    required this.repository,
+  });
+
+  final String managerId;
+  final ManagerBookingRequestsRepository repository;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+
+    return Scaffold(
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: colors.backgroundGradient,
+          ),
+        ),
+        child: SafeArea(
+          child: ListView(
+            physics: const BouncingScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 32),
             children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: isProcessing ? null : onDeny,
-                  child: const Text('Deny'),
+              Row(
+                children: [
+                  IconButton(
+                    tooltip: 'Back',
+                    onPressed: () => Navigator.of(context).pop(),
+                    style: IconButton.styleFrom(
+                      foregroundColor: Colors.white.withValues(alpha: .86),
+                      backgroundColor: colors.glassFill,
+                      minimumSize: const Size(46, 46),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        side: BorderSide(color: colors.glassBorder),
+                      ),
+                    ),
+                    icon: const Icon(Icons.arrow_back_rounded),
+                  ),
+                  const Spacer(),
+                ],
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'Request History',
+                style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
                 ),
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: FilledButton(
-                  onPressed: isProcessing ? null : onAccept,
-                  child: isProcessing
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('Accept'),
+              const SizedBox(height: 8),
+              Text(
+                'All visible booking requests for your stadium.',
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                  color: Colors.white.withValues(alpha: .62),
+                  height: 1.35,
                 ),
+              ),
+              const SizedBox(height: 24),
+              FutureBuilder<List<StadiumBooking>>(
+                future: repository.listRequestHistory(managerId),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState != ConnectionState.done &&
+                      !snapshot.hasData) {
+                    return const _RequestsStatusCard(
+                      icon: Icons.history_rounded,
+                      title: 'Loading history',
+                      subtitle: 'Fetching stadium request history.',
+                      actionLabel: 'Refresh',
+                      onAction: null,
+                    );
+                  }
+
+                  if (snapshot.hasError) {
+                    return _RequestsStatusCard(
+                      icon: Icons.error_outline_rounded,
+                      title: 'Could not load history',
+                      subtitle: 'Check your connection and try again.',
+                      actionLabel: 'Back',
+                      onAction: () => Navigator.of(context).pop(),
+                    );
+                  }
+
+                  final requests = snapshot.data ?? const [];
+                  if (requests.isEmpty) {
+                    return const _RequestsStatusCard(
+                      icon: Icons.history_rounded,
+                      title: 'No request history',
+                      subtitle: 'Stadium requests will appear here.',
+                      actionLabel: 'Refresh',
+                      onAction: null,
+                    );
+                  }
+
+                  return Column(
+                    children: [
+                      for (var index = 0; index < requests.length; index++)
+                        Padding(
+                          padding: EdgeInsets.only(
+                            bottom: index == requests.length - 1 ? 0 : 12,
+                          ),
+                          child: _RequestCard(request: requests[index]),
+                        ),
+                    ],
+                  );
+                },
               ),
             ],
           ),
-        ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RequestStatusBadge extends StatelessWidget {
+  const _RequestStatusBadge({required this.status});
+
+  final String status;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final (label, labelColor) = switch (status) {
+      BookingService.activeStatus => ('Accepted', colors.action),
+      BookingService.pendingStatus => ('Pending', Colors.amber),
+      BookingService.deniedStatus => ('Denied', Colors.redAccent),
+      BookingService.cancelledStatus => ('Cancelled', Colors.white70),
+      _ => (status, Colors.white70),
+    };
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: colors.activeNavFill,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: colors.glassBorder),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: labelColor,
+          fontSize: 12,
+          fontWeight: FontWeight.w900,
+        ),
       ),
     );
   }
@@ -331,7 +545,7 @@ class _RequestsStatusCard extends StatelessWidget {
   final String title;
   final String subtitle;
   final String actionLabel;
-  final VoidCallback onAction;
+  final VoidCallback? onAction;
 
   @override
   Widget build(BuildContext context) {
@@ -369,12 +583,14 @@ class _RequestsStatusCard extends StatelessWidget {
                   height: 1.4,
                 ),
               ),
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                onPressed: onAction,
-                icon: const Icon(Icons.refresh_rounded),
-                label: Text(actionLabel),
-              ),
+              if (onAction != null) ...[
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: onAction,
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: Text(actionLabel),
+                ),
+              ],
             ],
           ),
         ),

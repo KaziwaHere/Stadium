@@ -2,6 +2,7 @@ import {
   Client,
   ID,
   Permission,
+  Query,
   Role,
   Users,
 } from "node-appwrite";
@@ -17,6 +18,7 @@ const STADIUMS_TABLE_ID = "stadiums";
 const ACTIVE_STATUS = "active";
 const PENDING_STATUS = "pending";
 const DENIED_STATUS = "denied";
+const CANCELLED_STATUS = "cancelled";
 const RESERVED_SLOT_STATUSES = new Set([ACTIVE_STATUS, PENDING_STATUS]);
 
 const usersCache = {
@@ -126,6 +128,14 @@ function bookingPermissions(userId, managerId) {
   return permissions;
 }
 
+function userOnlyBookingPermissions(userId) {
+  return [
+    Permission.read(Role.user(userId)),
+    Permission.update(Role.user(userId)),
+    Permission.delete(Role.user(userId)),
+  ];
+}
+
 function bookedSlotPermissions(userId, managerId) {
   const permissions = [
     Permission.read(Role.any()),
@@ -137,6 +147,13 @@ function bookedSlotPermissions(userId, managerId) {
   }
 
   return permissions;
+}
+
+function managerBookedSlotPermissions(managerId) {
+  return [
+    Permission.read(Role.any()),
+    Permission.delete(Role.user(managerId)),
+  ];
 }
 
 function rowPayload(row) {
@@ -375,6 +392,155 @@ async function denyBookingRequest({ tables, callerId, body, res }) {
   return res.json({ ok: true });
 }
 
+async function managerBlockSlot({ tables, callerId, body, res }) {
+  const managerId = extractUserId(body?.userId);
+  if (!managerId || managerId !== callerId) {
+    return res.json({ error: "Managers can only update their own slots." }, 403);
+  }
+
+  const stadiumId = extractUserId(body?.stadiumId);
+  if (!stadiumId || stadiumId !== callerId) {
+    return res.json({ error: "Managers can only update their own stadium." }, 403);
+  }
+
+  const dayDate = String(body?.dayDate ?? "").trim();
+  const slotTime = String(body?.slotTime ?? "").trim();
+  if (!dayDate || !slotTime) {
+    return res.json({ error: "Missing booking time." }, 400);
+  }
+
+  const ownedStadiumId = await managerIdForStadium(tables, stadiumId);
+  if (ownedStadiumId !== callerId) {
+    return res.json({ error: "Stadium not found for this manager." }, 404);
+  }
+
+  const slotId = String(body?.slotId || slotIdFor(stadiumId, dayDate, slotTime));
+
+  try {
+    const slot = await tables.createRow(
+      DATABASE_ID,
+      BOOKED_SLOTS_TABLE_ID,
+      slotId,
+      {
+        stadiumId,
+        dayDate,
+        slotTime,
+        status: ACTIVE_STATUS,
+      },
+      managerBookedSlotPermissions(callerId),
+    );
+
+    return res.json({ slot: rowPayload(slot) });
+  } catch (err) {
+    if (err?.code === 409) {
+      return res.json({ error: "That slot is already booked." }, 409);
+    }
+
+    throw err;
+  }
+}
+
+async function managerUnblockSlot({ tables, callerId, body, res }) {
+  const managerId = extractUserId(body?.userId);
+  if (!managerId || managerId !== callerId) {
+    return res.json({ error: "Managers can only update their own slots." }, 403);
+  }
+
+  const stadiumId = extractUserId(body?.stadiumId);
+  if (!stadiumId || stadiumId !== callerId) {
+    return res.json({ error: "Managers can only update their own stadium." }, 403);
+  }
+
+  const dayDate = String(body?.dayDate ?? "").trim();
+  const slotTime = String(body?.slotTime ?? "").trim();
+  if (!dayDate || !slotTime) {
+    return res.json({ error: "Missing booking time." }, 400);
+  }
+
+  const ownedStadiumId = await managerIdForStadium(tables, stadiumId);
+  if (ownedStadiumId !== callerId) {
+    return res.json({ error: "Stadium not found for this manager." }, 404);
+  }
+
+  const slotId = String(body?.slotId || slotIdFor(stadiumId, dayDate, slotTime));
+
+  let slot;
+  try {
+    slot = await tables.getRow(DATABASE_ID, BOOKED_SLOTS_TABLE_ID, slotId);
+  } catch (err) {
+    if (err?.code === 404) {
+      return res.json({ error: "That time is already available." }, 404);
+    }
+
+    throw err;
+  }
+
+  const slotData = slot.data ?? slot;
+  if (
+    slotData.stadiumId !== stadiumId ||
+    slotData.dayDate !== dayDate ||
+    slotData.slotTime !== slotTime
+  ) {
+    return res.json({ error: "Booked time does not match this stadium." }, 403);
+  }
+
+  const bookings = await tables.listRows(DATABASE_ID, BOOKINGS_TABLE_ID, [
+    Query.equal("slotId", slotId),
+    Query.equal("status", [ACTIVE_STATUS, PENDING_STATUS]),
+    Query.limit(1),
+  ]);
+
+  if ((bookings.rows ?? []).length > 0) {
+    return res.json(
+      { error: "Only manager-blocked times can be marked available." },
+      409,
+    );
+  }
+
+  await tables.deleteRow(DATABASE_ID, BOOKED_SLOTS_TABLE_ID, slotId);
+  return res.json({ ok: true });
+}
+
+async function cancelBookingRequest({ tables, callerId, body, res }) {
+  const userId = extractUserId(body?.userId);
+  if (!userId || userId !== callerId) {
+    return res.json({ error: "You can only cancel your own bookings." }, 403);
+  }
+
+  const requestId = String(body?.requestId ?? "").trim();
+  if (!requestId) {
+    return res.json({ error: "Invalid booking request." }, 400);
+  }
+
+  const request = await tables.getRow(DATABASE_ID, BOOKINGS_TABLE_ID, requestId);
+  const data = request.data ?? request;
+  if (data.userId !== callerId) {
+    return res.json({ error: "You can only cancel your own bookings." }, 403);
+  }
+
+  await tables.updateRow(
+    DATABASE_ID,
+    BOOKINGS_TABLE_ID,
+    requestId,
+    { status: CANCELLED_STATUS },
+    userOnlyBookingPermissions(callerId),
+  );
+
+  try {
+    await tables.deleteRow(
+      DATABASE_ID,
+      BOOKED_SLOTS_TABLE_ID,
+      data.slotId,
+    );
+  } catch (err) {
+    if (err?.code !== 404) {
+      throw err;
+    }
+  }
+
+  return res.json({ ok: true });
+}
+
 export default async ({ req, res, log, error }) => {
   try {
     const client = new Client()
@@ -421,6 +587,18 @@ export default async ({ req, res, log, error }) => {
 
     if (action === "denyBookingRequest") {
       return denyBookingRequest({ tables, callerId, body: parsedBody, res });
+    }
+
+    if (action === "managerBlockSlot") {
+      return managerBlockSlot({ tables, callerId, body: parsedBody, res });
+    }
+
+    if (action === "managerUnblockSlot") {
+      return managerUnblockSlot({ tables, callerId, body: parsedBody, res });
+    }
+
+    if (action === "cancelBookingRequest") {
+      return cancelBookingRequest({ tables, callerId, body: parsedBody, res });
     }
 
     const now = Date.now();

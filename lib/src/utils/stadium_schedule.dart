@@ -1,8 +1,13 @@
 import 'package:stadium/src/models/stadium.dart';
 
 const bookingWindowDays = 6;
+const _firstSlotStartMinutes = 16 * 60;
+const _lastSlotStartMinutes = 24 * 60;
 
-final _slotStartMinutes = List<int>.generate(24, (hour) => hour * 60);
+final _slotStartMinutes = List<int>.generate(
+  ((_lastSlotStartMinutes - _firstSlotStartMinutes) ~/ 60) + 1,
+  (index) => _firstSlotStartMinutes + (index * 60),
+);
 
 List<BookingDay> buildBookingDays({
   DateTime? now,
@@ -51,7 +56,16 @@ DateTime? bookingSlotStartsAt(BookingDay day, BookingSlot slot) {
   final minutes = _parseTime(slot.time);
   if (date == null || minutes == null) return null;
 
-  return DateTime(date.year, date.month, date.day, minutes ~/ 60, minutes % 60);
+  final slotDate = minutes < _firstSlotStartMinutes
+      ? date.add(const Duration(days: 1))
+      : date;
+  return DateTime(
+    slotDate.year,
+    slotDate.month,
+    slotDate.day,
+    minutes ~/ 60,
+    minutes % 60,
+  );
 }
 
 DateTime? _parseDate(String value) {
@@ -108,8 +122,9 @@ String _formatDate(DateTime date) {
 }
 
 String _formatTime(int minutes) {
-  final hour24 = minutes ~/ 60;
-  final minute = minutes % 60;
+  final normalizedMinutes = minutes % (24 * 60);
+  final hour24 = normalizedMinutes ~/ 60;
+  final minute = normalizedMinutes % 60;
   final period = hour24 >= 12 ? 'PM' : 'AM';
   final hour12 = hour24 % 12 == 0 ? 12 : hour24 % 12;
 
