@@ -14,7 +14,7 @@ abstract class ManagerStadiumRepository {
     required int price,
   });
 
-  Future<List<Stadium>> listPublicStadiums();
+  Future<List<Stadium>> listPublicStadiums({int limit = 20, int offset = 0});
 }
 
 class ManagerStadiumService implements ManagerStadiumRepository {
@@ -88,12 +88,15 @@ class ManagerStadiumService implements ManagerStadiumRepository {
   }
 
   @override
-  Future<List<Stadium>> listPublicStadiums() async {
+  Future<List<Stadium>> listPublicStadiums({
+    int limit = 20,
+    int offset = 0,
+  }) async {
     try {
       final rows = await _tables.listRows(
         databaseId: databaseId,
         tableId: tableId,
-        queries: [Query.limit(100)],
+        queries: [Query.limit(limit), Query.offset(offset)],
       );
 
       return rows.rows.map(_stadiumFromRow).toList();

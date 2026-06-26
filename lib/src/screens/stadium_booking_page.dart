@@ -112,12 +112,26 @@ class _StadiumBookingPageState extends State<StadiumBookingPage> {
                 const SizedBox(height: 16),
                 _LocationPanel(stadium: widget.stadium),
                 const SizedBox(height: 24),
-                Text(
-                  'Choose a day',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w900,
-                  ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Choose a day',
+                        style: Theme.of(context).textTheme.titleLarge
+                            ?.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w900,
+                            ),
+                      ),
+                    ),
+                    Text(
+                      _bookingMonthName(_selectedDay.date) ?? '',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: .58),
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 12),
                 SizedBox(
@@ -158,7 +172,7 @@ class _StadiumBookingPageState extends State<StadiumBookingPage> {
                       ),
                     ),
                     Text(
-                      '${_selectedDay.label}, ${_selectedDay.date}',
+                      _bookingDayDisplayLabel(_selectedDay),
                       style: TextStyle(
                         color: Colors.white.withValues(alpha: .58),
                         fontWeight: FontWeight.w700,
@@ -359,7 +373,7 @@ class _StadiumBookingPageState extends State<StadiumBookingPage> {
             : 'Stadium booked',
         message: booking.status == BookingService.pendingStatus
             ? 'Your booking request was sent. The manager will accept or deny it soon.'
-            : '${widget.stadium.name} is yours ${day.label}, ${day.date} at ${slot.time}.',
+            : '${widget.stadium.name} is yours ${_bookingDayDisplayLabel(day)} at ${slot.time}.',
         type: AppNotificationType.success,
       );
     } on BookingSlotUnavailableException {
@@ -390,15 +404,15 @@ class _StadiumBookingPageState extends State<StadiumBookingPage> {
     } catch (error, stackTrace) {
       if (!mounted) return;
 
-      print('=== BOOKING ERROR ===');
-      print('Error: $error');
-      print('Stack trace: $stackTrace');
+      debugPrint('=== BOOKING ERROR ===');
+      debugPrint('Error: $error');
+      debugPrint('Stack trace: $stackTrace');
       if (error is AppwriteException) {
-        print('Appwrite error code: ${error.code}');
-        print('Appwrite error message: ${error.message}');
-        print('Appwrite error type: ${error.type}');
+        debugPrint('Appwrite error code: ${error.code}');
+        debugPrint('Appwrite error message: ${error.message}');
+        debugPrint('Appwrite error type: ${error.type}');
       }
-      print('===================');
+      debugPrint('===================');
 
       final message = error is AppwriteException
           ? error.message ?? error.toString()
@@ -501,6 +515,43 @@ class _StadiumBookingPageState extends State<StadiumBookingPage> {
       }
     }
   }
+}
+
+String _bookingDayDisplayLabel(BookingDay day) {
+  final dayNumber = _bookingDayNumber(day.date);
+  if (dayNumber == null) return day.label;
+
+  return '${day.label}, $dayNumber';
+}
+
+String? _bookingDayNumber(String date) {
+  final parts = date.split('-');
+  if (parts.length != 3) return null;
+
+  final day = int.tryParse(parts[2]);
+  return day?.toString();
+}
+
+String? _bookingMonthName(String date) {
+  final parts = date.split('-');
+  if (parts.length != 3) return null;
+
+  final month = int.tryParse(parts[1]);
+  return switch (month) {
+    1 => 'January',
+    2 => 'February',
+    3 => 'March',
+    4 => 'April',
+    5 => 'May',
+    6 => 'June',
+    7 => 'July',
+    8 => 'August',
+    9 => 'September',
+    10 => 'October',
+    11 => 'November',
+    12 => 'December',
+    _ => null,
+  };
 }
 
 class _LocationPanel extends StatelessWidget {
@@ -682,7 +733,7 @@ class _DayChip extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              day.date,
+              _bookingDayNumber(day.date) ?? day.date,
               style: TextStyle(
                 color: Colors.white.withValues(alpha: .54),
                 fontSize: 12,

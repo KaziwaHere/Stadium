@@ -323,14 +323,14 @@ class AdminUser {
   const AdminUser({
     required this.id,
     required this.name,
-    required this.email,
+    required this.phone,
     required this.roles,
     required this.status,
   });
 
   final String id;
   final String name;
-  final String email;
+  final String phone;
   final List<String> roles;
   final bool status;
 
@@ -340,7 +340,7 @@ class AdminUser {
     return AdminUser(
       id: (map['id'] ?? map['\$id'] ?? '').toString(),
       name: (map['name'] ?? '').toString(),
-      email: (map['email'] ?? '').toString(),
+      phone: (map['phone'] ?? map['email'] ?? '').toString(),
       roles: roles is List ? roles.map((role) => role.toString()).toList() : [],
       status: map['status'] is bool ? map['status'] as bool : true,
     );
@@ -350,7 +350,7 @@ class AdminUser {
     return {
       'id': id,
       'name': name,
-      'email': email,
+      'phone': phone,
       'roles': roles,
       'status': status,
     };

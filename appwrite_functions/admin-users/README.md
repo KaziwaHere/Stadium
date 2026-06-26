@@ -13,3 +13,8 @@ Required environment variables:
 The Flutter app only shows the Admin tab when the signed-in Appwrite user has an
 `admin` label. Keep the function execution permissions restricted to users, and
 keep the in-function admin-label check enabled.
+
+Deleting a user also removes their bookings and favorites. If the deleted user
+owns a manager stadium, the function deletes that stadium, removes saved
+favorites for it, releases its booked slots, and denies all pending booking
+requests for that stadium before deleting the account.

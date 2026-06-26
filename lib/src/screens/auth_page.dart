@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:appwrite/appwrite.dart';
 import 'package:appwrite/models.dart' as models;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:stadium/src/services/auth_service.dart';
 import 'package:stadium/src/theme/app_theme.dart';
 
@@ -18,12 +19,11 @@ class AuthPage extends StatefulWidget {
 class _AuthPageState extends State<AuthPage> with WidgetsBindingObserver {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
-  final _emailController = TextEditingController();
+  final _phoneController = TextEditingController();
   final _passwordController = TextEditingController();
 
   bool _isRegistering = false;
   bool _isSubmitting = false;
-  bool _isSendingRecovery = false;
   bool _obscurePassword = true;
   bool _wasKeyboardVisible = false;
   String? _formError;
@@ -39,7 +39,7 @@ class _AuthPageState extends State<AuthPage> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _nameController.dispose();
-    _emailController.dispose();
+    _phoneController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
@@ -112,12 +112,17 @@ class _AuthPageState extends State<AuthPage> with WidgetsBindingObserver {
                                       ),
                               ),
                               _AuthTextField(
-                                controller: _emailController,
-                                icon: Icons.email_rounded,
-                                label: 'Email address',
-                                keyboardType: TextInputType.emailAddress,
+                                controller: _phoneController,
+                                icon: Icons.phone_rounded,
+                                label: 'Phone number',
+                                keyboardType: TextInputType.phone,
                                 textInputAction: TextInputAction.next,
-                                validator: _validateEmail,
+                                validator: _validatePhone,
+                                inputFormatters: [
+                                  FilteringTextInputFormatter.allow(
+                                    RegExp(r'[\d+]'),
+                                  ),
+                                ],
                                 onChanged: (_) => _clearFormError(),
                               ),
                               const SizedBox(height: 14),
@@ -134,10 +139,9 @@ class _AuthPageState extends State<AuthPage> with WidgetsBindingObserver {
                                       ? 'Show password'
                                       : 'Hide password',
                                   onPressed: () {
-                                    setState(
-                                      () =>
-                                          _obscurePassword = !_obscurePassword,
-                                    );
+                                    setState(() {
+                                      _obscurePassword = !_obscurePassword;
+                                    });
                                   },
                                   icon: Icon(
                                     _obscurePassword
@@ -147,35 +151,6 @@ class _AuthPageState extends State<AuthPage> with WidgetsBindingObserver {
                                 ),
                                 onSubmitted: (_) => _submit(),
                               ),
-                              if (!_isRegistering) ...[
-                                const SizedBox(height: 8),
-                                Align(
-                                  alignment: Alignment.centerRight,
-                                  child: TextButton(
-                                    style: TextButton.styleFrom(
-                                      foregroundColor: colors.selection,
-                                      visualDensity: VisualDensity.compact,
-                                      tapTargetSize:
-                                          MaterialTapTargetSize.shrinkWrap,
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 4,
-                                      ),
-                                    ),
-                                    onPressed: _isSendingRecovery
-                                        ? null
-                                        : _requestPasswordRecovery,
-                                    child: Text(
-                                      _isSendingRecovery
-                                          ? 'Sending...'
-                                          : 'Forgot password?',
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w900,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
                               AnimatedSwitcher(
                                 duration: const Duration(milliseconds: 180),
                                 child: _formMessage == null
@@ -307,16 +282,15 @@ class _AuthPageState extends State<AuthPage> with WidgetsBindingObserver {
     });
 
     try {
+      final phone = _normalizedPhone(_phoneController.text);
+      final password = _passwordController.text;
       final user = _isRegistering
           ? await authService.register(
               name: _nameController.text.trim(),
-              email: _emailController.text.trim(),
-              password: _passwordController.text,
+              phone: phone,
+              password: password,
             )
-          : await authService.login(
-              email: _emailController.text.trim(),
-              password: _passwordController.text,
-            );
+          : await authService.login(phone: phone, password: password);
 
       widget.onAuthenticated(user);
     } on AppwriteException catch (error) {
@@ -339,10 +313,10 @@ class _AuthPageState extends State<AuthPage> with WidgetsBindingObserver {
     return null;
   }
 
-  String? _validateEmail(String? value) {
-    final email = value?.trim() ?? '';
-    if (email.isEmpty || !email.contains('@')) {
-      return 'Enter a valid email';
+  String? _validatePhone(String? value) {
+    final phone = _normalizedPhone(value ?? '');
+    if (!RegExp(r'^\+9647\d{9}$').hasMatch(phone)) {
+      return 'Enter a valid phone number, like 07701234567';
     }
 
     return null;
@@ -356,57 +330,16 @@ class _AuthPageState extends State<AuthPage> with WidgetsBindingObserver {
     return null;
   }
 
-  Future<void> _requestPasswordRecovery() async {
-    final email = _emailController.text.trim();
-    if (_validateEmail(email) != null) {
-      setState(() {
-        _formMessage = null;
-        _formError = 'Enter your email address first.';
-      });
-      return;
-    }
-
-    setState(() {
-      _formError = null;
-      _formMessage = null;
-      _isSendingRecovery = true;
-    });
-
-    try {
-      await authService.sendPasswordRecovery(email: email);
-
-      setState(() {
-        _formMessage = 'Password reset email sent. Check your inbox.';
-      });
-    } on AppwriteException catch (error) {
-      setState(() => _formError = _recoveryErrorMessage(error));
-    } catch (error) {
-      setState(() => _formError = 'Could not send reset email. Try again.');
-    } finally {
-      if (mounted) {
-        setState(() => _isSendingRecovery = false);
-      }
-    }
-  }
-
   String _authErrorMessage(AppwriteException error) {
     if (!_isRegistering && (error.code == 400 || error.code == 401)) {
-      return 'Email or password is incorrect.';
+      return 'Phone number or password is incorrect.';
     }
 
     if (_isRegistering && error.code == 409) {
-      return 'An account already exists with this email.';
+      return 'An account already exists with this phone number.';
     }
 
     return error.message ?? 'Authentication failed.';
-  }
-
-  String _recoveryErrorMessage(AppwriteException error) {
-    if (error.code == 400 || error.code == 404) {
-      return 'No account was found for this email.';
-    }
-
-    return error.message ?? 'Could not send reset email.';
   }
 
   void _clearFormError() {
@@ -416,6 +349,14 @@ class _AuthPageState extends State<AuthPage> with WidgetsBindingObserver {
       _formError = null;
       _formMessage = null;
     });
+  }
+
+  String _normalizedPhone(String value) {
+    final digits = value.replaceAll(RegExp(r'\D'), '');
+    final localDigits = digits.startsWith('964')
+        ? digits.substring(3)
+        : digits.replaceFirst(RegExp(r'^0+'), '');
+    return '+964$localDigits';
   }
 }
 
@@ -582,6 +523,7 @@ class _AuthTextField extends StatefulWidget {
     this.keyboardType,
     this.textInputAction,
     this.validator,
+    this.inputFormatters,
     this.obscureText = false,
     this.suffixIcon,
     this.onSubmitted,
@@ -594,6 +536,7 @@ class _AuthTextField extends StatefulWidget {
   final TextInputType? keyboardType;
   final TextInputAction? textInputAction;
   final FormFieldValidator<String>? validator;
+  final List<TextInputFormatter>? inputFormatters;
   final bool obscureText;
   final Widget? suffixIcon;
   final ValueChanged<String>? onSubmitted;
@@ -631,6 +574,7 @@ class _AuthTextFieldState extends State<_AuthTextField> {
       keyboardType: widget.keyboardType,
       textInputAction: widget.textInputAction,
       validator: widget.validator,
+      inputFormatters: widget.inputFormatters,
       obscureText: widget.obscureText,
       onFieldSubmitted: widget.onSubmitted,
       onChanged: _handleChanged,

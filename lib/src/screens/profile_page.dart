@@ -1,10 +1,12 @@
 import 'package:appwrite/appwrite.dart';
 import 'package:appwrite/models.dart' as models;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:stadium/src/screens/admin_page.dart';
 import 'package:stadium/src/screens/contact_details_page.dart';
 import 'package:stadium/src/services/auth_service.dart';
 import 'package:stadium/src/theme/app_theme.dart';
+import 'package:stadium/src/widgets/app_confirmation_dialog.dart';
 import 'package:stadium/src/widgets/app_notification.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -76,7 +78,7 @@ class _ProfilePageState extends State<ProfilePage> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          _user.email,
+                          _displayPhone,
                           style: TextStyle(
                             color: Colors.white.withValues(alpha: .6),
                             height: 1.35,
@@ -91,7 +93,7 @@ class _ProfilePageState extends State<ProfilePage> {
               _ProfileOption(
                 icon: Icons.account_circle_rounded,
                 title: 'Personal details',
-                subtitle: 'Name, email, phone, and password',
+                subtitle: 'Name, phone, and password',
                 onTap: _openPersonalDetails,
               ),
               const SizedBox(height: 12),
@@ -149,6 +151,9 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   String get _displayName => _user.name.trim().isEmpty ? 'Profile' : _user.name;
+  String get _displayPhone => _user.phone.trim().isEmpty
+      ? 'No phone number added'
+      : _localPhoneNumber(_user.phone);
 
   Future<void> _refreshProfile({bool showError = true}) async {
     try {
@@ -217,6 +222,17 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Future<void> _signOut() async {
+    final shouldSignOut = await showAppConfirmationDialog(
+      context: context,
+      icon: Icons.logout_rounded,
+      title: 'Sign out?',
+      message: 'You will need to sign in again to manage bookings.',
+      confirmLabel: 'Sign out',
+      cancelLabel: 'Stay here',
+      isDestructive: true,
+    );
+    if (!shouldSignOut || !mounted) return;
+
     setState(() => _isSigningOut = true);
 
     try {
@@ -376,18 +392,11 @@ class _PersonalDetailsSheet extends StatelessWidget {
                 ),
                 const SizedBox(height: 10),
                 _ReadonlyProfileField(
-                  icon: Icons.email_rounded,
-                  label: 'Email',
-                  value: user.email,
-                  badge: user.emailVerification ? 'Verified' : null,
-                ),
-                const SizedBox(height: 10),
-                _ReadonlyProfileField(
                   icon: Icons.phone_rounded,
                   label: 'Phone',
                   value: user.phone.isEmpty
                       ? 'No phone number added'
-                      : user.phone,
+                      : _localPhoneNumber(user.phone),
                   badge: user.phoneVerification ? 'Verified' : null,
                 ),
                 const SizedBox(height: 10),
@@ -486,18 +495,11 @@ class _ChangeDetailsPageState extends State<_ChangeDetailsPage> {
               ),
               const SizedBox(height: 12),
               _ProfileOption(
-                icon: Icons.email_rounded,
-                title: 'Change email',
-                subtitle: _user.email,
-                onTap: _changeEmail,
-              ),
-              const SizedBox(height: 12),
-              _ProfileOption(
                 icon: Icons.phone_rounded,
                 title: 'Change phone number',
                 subtitle: _user.phone.isEmpty
                     ? 'No phone number added'
-                    : _user.phone,
+                    : _localPhoneNumber(_user.phone),
                 onTap: _changePhone,
               ),
               const SizedBox(height: 12),
@@ -523,17 +525,6 @@ class _ChangeDetailsPageState extends State<_ChangeDetailsPage> {
     );
 
     _handleUpdatedUser(user, 'Name updated', 'Your name was saved.');
-  }
-
-  Future<void> _changeEmail() async {
-    final user = await showModalBottomSheet<models.User>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => _EmailEditSheet(user: _user),
-    );
-
-    _handleUpdatedUser(user, 'Email updated', 'Your email was saved.');
   }
 
   Future<void> _changePhone() async {
@@ -680,131 +671,6 @@ class _NameEditSheetState extends State<_NameEditSheet> {
   }
 }
 
-class _EmailEditSheet extends StatefulWidget {
-  const _EmailEditSheet({required this.user});
-
-  final models.User user;
-
-  @override
-  State<_EmailEditSheet> createState() => _EmailEditSheetState();
-}
-
-class _EmailEditSheetState extends State<_EmailEditSheet> {
-  late final TextEditingController _emailController = TextEditingController(
-    text: widget.user.email,
-  );
-  final TextEditingController _passwordController = TextEditingController();
-  bool _isSaving = false;
-  String? _emailError;
-  String? _passwordError;
-
-  @override
-  void dispose() {
-    _emailController.dispose();
-    _passwordController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return _EditSheetFrame(
-      title: 'Change email',
-      isSaving: _isSaving,
-      onSave: _save,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextField(
-            controller: _emailController,
-            keyboardType: TextInputType.emailAddress,
-            textInputAction: TextInputAction.next,
-            onChanged: (_) {
-              if (_emailError != null) setState(() => _emailError = null);
-            },
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w800,
-            ),
-            decoration: profileInputDecoration(
-              context: context,
-              icon: Icons.email_rounded,
-              label: 'New email',
-              errorText: _emailError,
-            ),
-          ),
-          const SizedBox(height: 14),
-          TextField(
-            controller: _passwordController,
-            obscureText: true,
-            textInputAction: TextInputAction.done,
-            onChanged: (_) {
-              if (_passwordError != null) {
-                setState(() => _passwordError = null);
-              }
-            },
-            onSubmitted: (_) => _save(),
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w800,
-            ),
-            decoration: profileInputDecoration(
-              context: context,
-              icon: Icons.lock_rounded,
-              label: 'Current password',
-              errorText: _passwordError,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _save() async {
-    final email = _emailController.text.trim();
-    final password = _passwordController.text;
-    var hasError = false;
-
-    if (email.isEmpty || !email.contains('@')) {
-      _emailError = 'Enter a valid email';
-      hasError = true;
-    }
-    if (password.isEmpty) {
-      _passwordError = 'Enter your current password';
-      hasError = true;
-    }
-    if (hasError) {
-      setState(() {});
-      return;
-    }
-    if (email == widget.user.email) {
-      Navigator.of(context).pop();
-      return;
-    }
-
-    setState(() => _isSaving = true);
-
-    try {
-      final user = await authService.updateEmail(
-        email: email,
-        password: password,
-      );
-      if (mounted) Navigator.of(context).pop(user);
-    } on AppwriteException catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _isSaving = false;
-        _passwordError = error.message ?? 'Could not save email';
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _isSaving = false;
-        _passwordError = 'Could not save email';
-      });
-    }
-  }
-}
-
 class _PhoneEditSheet extends StatefulWidget {
   const _PhoneEditSheet({required this.user});
 
@@ -816,7 +682,7 @@ class _PhoneEditSheet extends StatefulWidget {
 
 class _PhoneEditSheetState extends State<_PhoneEditSheet> {
   late final TextEditingController _phoneController = TextEditingController(
-    text: widget.user.phone,
+    text: _localPhoneNumber(widget.user.phone),
   );
   final TextEditingController _passwordController = TextEditingController();
   bool _isSaving = false;
@@ -842,6 +708,7 @@ class _PhoneEditSheetState extends State<_PhoneEditSheet> {
           TextField(
             controller: _phoneController,
             keyboardType: TextInputType.phone,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
             textInputAction: TextInputAction.next,
             onChanged: (_) {
               if (_phoneError != null) setState(() => _phoneError = null);
@@ -854,7 +721,7 @@ class _PhoneEditSheetState extends State<_PhoneEditSheet> {
               context: context,
               icon: Icons.phone_rounded,
               label: 'New phone number',
-              hintText: '+964...',
+              hintText: '07701234567',
               errorText: _phoneError,
             ),
           ),
@@ -886,12 +753,12 @@ class _PhoneEditSheetState extends State<_PhoneEditSheet> {
   }
 
   Future<void> _save() async {
-    final phone = _phoneController.text.trim();
+    final phone = _normalizedPhoneNumber(_phoneController.text);
     final password = _passwordController.text;
     var hasError = false;
 
-    if (phone.isEmpty || !phone.startsWith('+')) {
-      _phoneError = 'Use international format, like +964...';
+    if (!RegExp(r'^\+9647\d{9}$').hasMatch(phone)) {
+      _phoneError = 'Enter a valid phone number, like 07701234567';
       hasError = true;
     }
     if (password.isEmpty) {
@@ -929,6 +796,23 @@ class _PhoneEditSheetState extends State<_PhoneEditSheet> {
       });
     }
   }
+}
+
+String _localPhoneNumber(String phone) {
+  final digits = phone.replaceAll(RegExp(r'\D'), '');
+  final withoutCountryCode = digits.startsWith('964')
+      ? digits.substring(3)
+      : digits.replaceFirst(RegExp(r'^0+'), '');
+  if (withoutCountryCode.isEmpty) return '';
+  return '0$withoutCountryCode';
+}
+
+String _normalizedPhoneNumber(String phone) {
+  final digits = phone.replaceAll(RegExp(r'\D'), '');
+  final localDigits = digits.startsWith('964')
+      ? digits.substring(3)
+      : digits.replaceFirst(RegExp(r'^0+'), '');
+  return '+964$localDigits';
 }
 
 class _PasswordEditSheet extends StatefulWidget {

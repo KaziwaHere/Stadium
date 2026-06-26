@@ -3,6 +3,7 @@ import 'package:appwrite/models.dart' as models;
 import 'package:flutter/material.dart';
 import 'package:stadium/src/services/booking_service.dart';
 import 'package:stadium/src/theme/app_theme.dart';
+import 'package:stadium/src/widgets/app_confirmation_dialog.dart';
 import 'package:stadium/src/widgets/app_notification.dart';
 
 class ManagerRequestsPage extends StatefulWidget {
@@ -168,6 +169,17 @@ class _ManagerRequestsPageState extends State<ManagerRequestsPage> {
   Future<void> _accept(StadiumBooking request) async {
     if (_processingIds.contains(request.rowId)) return;
 
+    final shouldAccept = await showAppConfirmationDialog(
+      context: context,
+      icon: Icons.check_circle_rounded,
+      title: 'Accept request?',
+      message:
+          'Confirm ${request.userName} for ${request.dayLabel} at ${request.slotTime}.',
+      confirmLabel: 'Accept',
+      cancelLabel: 'Review',
+    );
+    if (!shouldAccept || !mounted) return;
+
     setState(() => _processingIds.add(request.rowId));
 
     try {
@@ -236,6 +248,18 @@ class _ManagerRequestsPageState extends State<ManagerRequestsPage> {
 
   Future<void> _deny(StadiumBooking request) async {
     if (_processingIds.contains(request.rowId)) return;
+
+    final shouldDeny = await showAppConfirmationDialog(
+      context: context,
+      icon: Icons.block_rounded,
+      title: 'Deny request?',
+      message:
+          'Deny ${request.userName} for ${request.dayLabel} at ${request.slotTime}?',
+      confirmLabel: 'Deny',
+      cancelLabel: 'Review',
+      isDestructive: true,
+    );
+    if (!shouldDeny || !mounted) return;
 
     setState(() => _processingIds.add(request.rowId));
 

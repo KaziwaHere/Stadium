@@ -24,18 +24,15 @@ class AuthService {
     return _account.updateName(name: name);
   }
 
-  Future<models.User> updateEmail({
-    required String email,
-    required String password,
-  }) {
-    return _account.updateEmail(email: email, password: password);
-  }
-
   Future<models.User> updatePhone({
     required String phone,
     required String password,
-  }) {
-    return _account.updatePhone(phone: phone, password: password);
+  }) async {
+    await _account.updatePhone(phone: phone, password: password);
+    return _account.updateEmail(
+      email: _phoneAuthEmail(phone),
+      password: password,
+    );
   }
 
   Future<models.User> updatePassword({
@@ -50,26 +47,28 @@ class AuthService {
 
   Future<models.User> register({
     required String name,
-    required String email,
+    required String phone,
     required String password,
   }) async {
     await _account.create(
       userId: ID.unique(),
-      email: email,
+      email: _phoneAuthEmail(phone),
       password: password,
       name: name,
     );
 
-    await login(email: email, password: password);
-    return _account.get();
+    await login(phone: phone, password: password);
+    return _account.updatePhone(phone: phone, password: password);
   }
 
   Future<models.User> login({
-    required String email,
+    required String phone,
     required String password,
   }) async {
-    await _account.createEmailPasswordSession(email: email, password: password);
-
+    await _account.createEmailPasswordSession(
+      email: _phoneAuthEmail(phone),
+      password: password,
+    );
     return _account.get();
   }
 
@@ -77,11 +76,9 @@ class AuthService {
     return _account.deleteSession(sessionId: 'current');
   }
 
-  Future<void> sendPasswordRecovery({required String email}) async {
-    await _account.createRecovery(
-      email: email,
-      url: 'https://fra.cloud.appwrite.io',
-    );
+  String _phoneAuthEmail(String phone) {
+    final digits = phone.replaceAll(RegExp(r'\D'), '');
+    return 'p$digits@phone.stadium.app';
   }
 }
 

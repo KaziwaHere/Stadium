@@ -67,7 +67,7 @@ class ContactDetailsPage extends StatelessWidget {
                 _ContactInfoCard(
                   icon: Icons.phone_rounded,
                   title: 'Phone',
-                  value: details.phone,
+                  value: _localIraqPhoneNumber(details.phone),
                   actionLabel: 'Call admin',
                   onTap: () => _launchContactUri(
                     context,
@@ -236,8 +236,8 @@ class _AdminContactDetailsPageState extends State<AdminContactDetailsPage> {
       _emailError = 'Enter a valid email';
       hasError = true;
     }
-    if (phone == _iraqDialCode) {
-      _phoneError = 'Enter the phone number after +964';
+    if (!RegExp(r'^\+9647\d{9}$').hasMatch(phone)) {
+      _phoneError = 'Enter a phone number, like 07701234567';
       hasError = true;
     }
     if (hasError) {
@@ -285,7 +285,9 @@ String _localIraqPhoneNumber(String phone) {
   final withoutCountryCode = digits.startsWith('964')
       ? digits.substring(3)
       : digits;
-  return withoutCountryCode.replaceFirst(RegExp(r'^0+'), '');
+  final localDigits = withoutCountryCode.replaceFirst(RegExp(r'^0+'), '');
+  if (localDigits.isEmpty) return '';
+  return '0$localDigits';
 }
 
 String _fullIraqPhoneNumber(String localPhone) {
@@ -557,7 +559,6 @@ class _IraqPhoneField extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          const Text('$_iraqDialCode ', style: textStyle),
           Expanded(
             child: TextField(
               controller: controller,
@@ -568,7 +569,7 @@ class _IraqPhoneField extends StatelessWidget {
               onSubmitted: (_) => onSubmitted(),
               style: textStyle,
               decoration: InputDecoration.collapsed(
-                hintText: '7701234567',
+                hintText: '07701234567',
                 hintStyle: TextStyle(
                   color: Colors.white.withValues(alpha: .42),
                   fontWeight: FontWeight.w800,

@@ -7,6 +7,7 @@ import 'package:stadium/src/screens/stadium_booking_page.dart';
 import 'package:stadium/src/services/booking_service.dart';
 import 'package:stadium/src/services/favorite_service.dart';
 import 'package:stadium/src/theme/app_theme.dart';
+import 'package:stadium/src/widgets/app_confirmation_dialog.dart';
 import 'package:stadium/src/utils/stadium_schedule.dart';
 import 'package:stadium/src/widgets/app_notification.dart';
 
@@ -95,6 +96,7 @@ class _BookingsPageState extends State<BookingsPage> {
       favoritesFuture: _favoritesFuture,
       onOpenHistory: _openBookingHistory,
       onCancelBooking: _cancelBooking,
+      onOpenBooking: (booking, index) => _openBooking(context, booking, index),
       onOpenFavorite: (favorite, index) =>
           _openFavorite(context, favorite, index),
       onRemoveFavorite: _removeFavorite,
@@ -188,7 +190,61 @@ class _BookingsPageState extends State<BookingsPage> {
     }
   }
 
+  Future<void> _openBooking(
+    BuildContext context,
+    StadiumBooking booking,
+    int index,
+  ) async {
+    final stadium = _stadiumFromBooking(booking);
+    final colors = context.appColors;
+    var isHearted = false;
+
+    try {
+      final favoriteIds = await _favoritesRepository.favoriteStadiumIds(
+        widget.user.$id,
+      );
+      isHearted = favoriteIds.contains(stadium.id);
+    } catch (_) {
+      isHearted = false;
+    }
+
+    if (!context.mounted) return;
+
+    final updatedIsHearted = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (context) => StadiumBookingPage(
+          stadium: stadium,
+          gradient:
+              colors.stadiumGradients[index % colors.stadiumGradients.length],
+          user: widget.user,
+          isHearted: isHearted,
+          bookingsRepository: _bookingsRepository,
+          favoritesRepository: _favoritesRepository,
+          onBookingCreated: widget.onBookingsChanged,
+        ),
+      ),
+    );
+
+    if (updatedIsHearted != null) {
+      _refreshFavorites();
+      _ignoreNextFavoritesChange = true;
+      widget.onFavoritesChanged?.call();
+    }
+  }
+
   Future<void> _cancelBooking(StadiumBooking booking) async {
+    final shouldCancel = await showAppConfirmationDialog(
+      context: context,
+      icon: Icons.event_busy_rounded,
+      title: 'Cancel booking?',
+      message:
+          'Cancel ${booking.stadiumName} on ${booking.dayLabel} at ${booking.slotTime}?',
+      confirmLabel: 'Cancel it',
+      cancelLabel: 'Keep booking',
+      isDestructive: true,
+    );
+    if (!shouldCancel || !mounted) return;
+
     try {
       await _bookingsRepository.cancelBooking(booking: booking);
       setState(() {
@@ -264,6 +320,24 @@ class _BookingsPageState extends State<BookingsPage> {
       days: buildBookingDays(),
     );
   }
+
+  Stadium _stadiumFromBooking(StadiumBooking booking) {
+    for (final stadium in stadiums) {
+      if (stadium.id == booking.stadiumId) return stadium;
+    }
+
+    return Stadium(
+      id: booking.stadiumId,
+      name: booking.stadiumName,
+      location: booking.location,
+      rating: booking.rating,
+      price: booking.price,
+      available: nextAvailabilityLabel(),
+      iconKey: booking.iconKey,
+      icon: booking.icon,
+      days: buildBookingDays(),
+    );
+  }
 }
 
 class _ActiveBookingsSection extends StatelessWidget {
@@ -271,10 +345,12 @@ class _ActiveBookingsSection extends StatelessWidget {
     super.key,
     required this.bookingsFuture,
     required this.onCancel,
+    required this.onOpen,
   });
 
   final Future<List<StadiumBooking>> bookingsFuture;
   final ValueChanged<StadiumBooking> onCancel;
+  final void Function(StadiumBooking booking, int index) onOpen;
 
   @override
   Widget build(BuildContext context) {
@@ -301,6 +377,7 @@ class _ActiveBookingsSection extends StatelessWidget {
         return _AnimatedBookingsList(
           bookings: snapshot.data ?? const [],
           onCancel: onCancel,
+          onOpen: onOpen,
         );
       },
     );
@@ -308,10 +385,15 @@ class _ActiveBookingsSection extends StatelessWidget {
 }
 
 class _AnimatedBookingsList extends StatefulWidget {
-  const _AnimatedBookingsList({required this.bookings, required this.onCancel});
+  const _AnimatedBookingsList({
+    required this.bookings,
+    required this.onCancel,
+    required this.onOpen,
+  });
 
   final List<StadiumBooking> bookings;
   final ValueChanged<StadiumBooking> onCancel;
+  final void Function(StadiumBooking booking, int index) onOpen;
 
   @override
   State<_AnimatedBookingsList> createState() => _AnimatedBookingsListState();
@@ -343,6 +425,7 @@ class _AnimatedBookingsListState extends State<_AnimatedBookingsList> {
             booking: _bookings[index],
             index: index,
             onCancel: widget.onCancel,
+            onOpen: widget.onOpen,
             showAcceptedDivider: _showAcceptedDivider(index),
           ),
       ],
@@ -366,12 +449,14 @@ class _BookingListItem extends StatelessWidget {
     required this.booking,
     required this.index,
     required this.onCancel,
+    required this.onOpen,
     this.showAcceptedDivider = false,
   });
 
   final StadiumBooking booking;
   final int index;
   final ValueChanged<StadiumBooking> onCancel;
+  final void Function(StadiumBooking booking, int index) onOpen;
   final bool showAcceptedDivider;
 
   @override
@@ -389,6 +474,7 @@ class _BookingListItem extends StatelessWidget {
             booking: booking,
             index: index,
             onCancel: canCancel ? () => onCancel(booking) : null,
+            onOpen: () => onOpen(booking, index),
           ),
         ),
       ],
@@ -421,12 +507,14 @@ class _ActiveBookingCard extends StatelessWidget {
     required this.booking,
     required this.index,
     required this.onCancel,
+    this.onOpen,
     this.showCancelAction = true,
   });
 
   final StadiumBooking booking;
   final int index;
   final VoidCallback? onCancel;
+  final VoidCallback? onOpen;
   final bool showCancelAction;
 
   @override
@@ -443,80 +531,37 @@ class _ActiveBookingCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(24),
         border: Border.all(color: colors.glassBorder),
       ),
-      child: Row(
-        children: [
-          Container(
-            width: 58,
-            height: 58,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(colors: gradient),
-              borderRadius: BorderRadius.circular(18),
-            ),
-            child: Icon(
-              booking.icon,
-              color: Colors.white.withValues(alpha: .88),
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final useStackedActions = constraints.maxWidth < 360;
+          final openArea = _BookingOpenArea(
+            booking: booking,
+            gradient: gradient,
+            onOpen: onOpen,
+          );
+          final actions = _BookingCardActions(
+            statusLabel: statusLabel,
+            showCancelAction: showCancelAction,
+            onCancel: onCancel,
+          );
+
+          if (useStackedActions) {
+            return Row(
               crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  booking.stadiumName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  booking.location,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(color: Colors.white.withValues(alpha: .56)),
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 6,
-                  children: [
-                    _BookingMeta(
-                      icon: Icons.calendar_month_rounded,
-                      label: '${booking.dayLabel}, ${booking.dayDate}',
-                    ),
-                    _BookingMeta(
-                      icon: Icons.access_time_rounded,
-                      label: booking.slotTime,
-                    ),
-                    _BookingMeta(
-                      icon: Icons.payments_rounded,
-                      label: '\$${booking.price}/h',
-                    ),
-                  ],
-                ),
+                Expanded(child: openArea),
+                if (actions.hasActions) ...[const SizedBox(width: 8), actions],
               ],
-            ),
-          ),
-          const SizedBox(width: 10),
-          if (statusLabel != null) _BookingStatusBadge(label: statusLabel),
-          if (statusLabel != null && showCancelAction && onCancel != null)
-            const SizedBox(width: 6),
-          if (showCancelAction && onCancel != null)
-            IconButton(
-              tooltip: 'Cancel booking',
-              onPressed: onCancel,
-              style: IconButton.styleFrom(
-                foregroundColor: colors.action,
-                minimumSize: const Size(42, 42),
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-              icon: const Icon(Icons.close_rounded, size: 22),
-            ),
-        ],
+            );
+          }
+
+          return Row(
+            children: [
+              Expanded(child: openArea),
+              if (actions.hasActions) ...[const SizedBox(width: 10), actions],
+            ],
+          );
+        },
       ),
     );
   }
@@ -653,6 +698,147 @@ class BookingHistoryPage extends StatelessWidget {
   }
 }
 
+class _BookingLeadingIcon extends StatelessWidget {
+  const _BookingLeadingIcon({required this.icon, required this.gradient});
+
+  final IconData icon;
+  final List<Color> gradient;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 58,
+      height: 58,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(colors: gradient),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Icon(icon, color: Colors.white.withValues(alpha: .88)),
+    );
+  }
+}
+
+class _BookingOpenArea extends StatelessWidget {
+  const _BookingOpenArea({
+    required this.booking,
+    required this.gradient,
+    required this.onOpen,
+  });
+
+  final StadiumBooking booking;
+  final List<Color> gradient;
+  final VoidCallback? onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onOpen,
+        child: Row(
+          children: [
+            _BookingLeadingIcon(icon: booking.icon, gradient: gradient),
+            const SizedBox(width: 14),
+            Expanded(child: _BookingDetails(booking: booking)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BookingDetails extends StatelessWidget {
+  const _BookingDetails({required this.booking});
+
+  final StadiumBooking booking;
+
+  @override
+  Widget build(BuildContext context) {
+    final dateLabel = booking.dayLabel == 'Today'
+        ? 'Today'
+        : '${booking.dayLabel}, ${booking.dayDate}';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          booking.stadiumName,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 5),
+        Text(
+          booking.location,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(color: Colors.white.withValues(alpha: .56)),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 12,
+          runSpacing: 6,
+          children: [
+            _BookingMeta(icon: Icons.calendar_month_rounded, label: dateLabel),
+            _BookingMeta(
+              icon: Icons.access_time_rounded,
+              label: booking.slotTime,
+            ),
+            _BookingMeta(
+              icon: Icons.payments_rounded,
+              label: '\$${booking.price}/h',
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _BookingCardActions extends StatelessWidget {
+  const _BookingCardActions({
+    required this.statusLabel,
+    required this.showCancelAction,
+    required this.onCancel,
+  });
+
+  final String? statusLabel;
+  final bool showCancelAction;
+  final VoidCallback? onCancel;
+
+  bool get hasActions =>
+      statusLabel != null || (showCancelAction && onCancel != null);
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      alignment: WrapAlignment.end,
+      children: [
+        if (statusLabel != null) _BookingStatusBadge(label: statusLabel!),
+        if (showCancelAction && onCancel != null)
+          IconButton(
+            tooltip: 'Cancel booking',
+            onPressed: onCancel,
+            style: IconButton.styleFrom(
+              foregroundColor: context.appColors.action,
+              minimumSize: const Size(42, 42),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            icon: const Icon(Icons.close_rounded, size: 22),
+          ),
+      ],
+    );
+  }
+}
+
 class _BookingStatusBadge extends StatelessWidget {
   const _BookingStatusBadge({required this.label});
 
@@ -691,21 +877,29 @@ class _BookingMeta extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
+    final style = TextStyle(
+      color: Colors.white.withValues(alpha: .72),
+      fontWeight: FontWeight.w800,
+      fontSize: 12,
+      height: 1.4,
+    );
 
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, color: colors.mutedIcon, size: 16),
-        const SizedBox(width: 4),
-        Text(
-          label,
-          style: TextStyle(
-            color: Colors.white.withValues(alpha: .72),
-            fontWeight: FontWeight.w800,
-            fontSize: 12,
+    return Text.rich(
+      TextSpan(
+        children: [
+          WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: Icon(icon, color: colors.mutedIcon, size: 16),
+            ),
           ),
-        ),
-      ],
+          TextSpan(text: label),
+        ],
+      ),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: style,
     );
   }
 }
@@ -908,7 +1102,7 @@ class _AnimatedListEntry extends StatelessWidget {
 
     return SizeTransition(
       sizeFactor: curved,
-      axisAlignment: -1,
+      alignment: Alignment.topCenter,
       child: FadeTransition(
         opacity: curved,
         child: SlideTransition(
@@ -1148,6 +1342,7 @@ class _BookingsFrame extends StatelessWidget {
     required this.favoritesFuture,
     required this.onOpenHistory,
     required this.onCancelBooking,
+    required this.onOpenBooking,
     required this.onOpenFavorite,
     required this.onRemoveFavorite,
     required this.onSectionChanged,
@@ -1160,6 +1355,7 @@ class _BookingsFrame extends StatelessWidget {
   final Future<List<FavoriteStadium>> favoritesFuture;
   final VoidCallback onOpenHistory;
   final ValueChanged<StadiumBooking> onCancelBooking;
+  final void Function(StadiumBooking booking, int index) onOpenBooking;
   final void Function(FavoriteStadium favorite, int index) onOpenFavorite;
   final ValueChanged<FavoriteStadium> onRemoveFavorite;
   final ValueChanged<int> onSectionChanged;
@@ -1261,6 +1457,7 @@ class _BookingsFrame extends StatelessWidget {
                         key: const ValueKey(0),
                         bookingsFuture: bookingsFuture,
                         onCancel: onCancelBooking,
+                        onOpen: onOpenBooking,
                       )
                     : _HeartedStadiumsSection(
                         key: const ValueKey(1),

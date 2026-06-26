@@ -21,8 +21,9 @@ void main() {
     expect(find.text('Welcome back'), findsOneWidget);
     expect(find.text('Login'), findsOneWidget);
     expect(find.text('Register'), findsOneWidget);
+    expect(find.text('Phone number'), findsOneWidget);
+    expect(find.text('Password'), findsOneWidget);
     expect(find.text('Sign in'), findsOneWidget);
-    expect(find.text('Forgot password?'), findsOneWidget);
 
     await tester.tap(find.text('Register'));
     await tester.pumpAndSettle();
@@ -30,7 +31,6 @@ void main() {
     expect(find.text('Create your account'), findsOneWidget);
     expect(find.text('Full name'), findsOneWidget);
     expect(find.text('Create account'), findsOneWidget);
-    expect(find.text('Forgot password?'), findsNothing);
   });
 
   testWidgets('Auth validation updates on blur and while typing', (
@@ -43,20 +43,28 @@ void main() {
       ),
     );
 
-    final emailField = find.byType(TextFormField).first;
+    final phoneField = find.byType(TextFormField).first;
+
     final passwordField = find.byType(TextFormField).at(1);
 
-    await tester.tap(emailField);
-    await tester.pump();
-    await tester.tap(passwordField);
+    await tester.tap(find.text('Sign in'));
     await tester.pump();
 
-    expect(find.text('Enter a valid email'), findsOneWidget);
+    expect(
+      find.text('Enter a valid phone number, like 07701234567'),
+      findsOneWidget,
+    );
+    expect(find.text('Password must be at least 8 characters'), findsOneWidget);
 
-    await tester.enterText(emailField, 'hana@example.com');
+    await tester.enterText(phoneField, '07701234567');
+    await tester.enterText(passwordField, 'password123');
     await tester.pump();
 
-    expect(find.text('Enter a valid email'), findsNothing);
+    expect(
+      find.text('Enter a valid phone number, like 07701234567'),
+      findsNothing,
+    );
+    expect(find.text('Password must be at least 8 characters'), findsNothing);
   });
 
   testWidgets('Stadium home page shows booking content', (tester) async {
@@ -85,7 +93,7 @@ void main() {
     await tester.tap(find.text('Profile'));
     await tester.pumpAndSettle();
     expect(find.text('Personal details'), findsOneWidget);
-    expect(find.text('hana@example.com'), findsOneWidget);
+    expect(find.text('07701234567'), findsOneWidget);
     expect(find.text('Sign out'), findsOneWidget);
   });
 
@@ -147,8 +155,8 @@ models.User _user() {
     status: true,
     labels: const [],
     passwordUpdate: '',
-    email: 'hana@example.com',
-    phone: '',
+    email: '',
+    phone: '+9647701234567',
     emailVerification: false,
     phoneVerification: false,
     mfa: false,

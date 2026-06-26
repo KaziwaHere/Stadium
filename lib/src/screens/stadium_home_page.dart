@@ -3,7 +3,6 @@ import 'dart:ui';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:appwrite/models.dart' as models;
-import 'package:stadium/src/data/stadium_data.dart';
 import 'package:stadium/src/models/stadium.dart';
 import 'package:stadium/src/screens/stadium_booking_page.dart';
 import 'package:stadium/src/services/booking_service.dart';
@@ -35,13 +34,20 @@ class StadiumHomePage extends StatefulWidget {
 }
 
 class _StadiumHomePageState extends State<StadiumHomePage> {
-  late Future<Set<String>> _favoriteIdsFuture;
+  static const _stadiumPageSize = 10;
+  static const _loadMoreThreshold = 420.0;
+
   late Future<List<Stadium>> _stadiumsFuture;
+  final ScrollController _scrollController = ScrollController();
   final TextEditingController _searchController = TextEditingController();
   List<Stadium> _allStadiums = [];
   Set<String> _favoriteIds = {};
   final Set<String> _updatingFavoriteIds = {};
   String _searchQuery = '';
+  var _nextStadiumOffset = 0;
+  var _hasMoreStadiums = true;
+  var _isLoadingMoreStadiums = false;
+  Object? _loadMoreError;
 
   FavoritesRepository get _favoritesRepository =>
       widget.favoritesRepository ?? favoriteService;
@@ -50,18 +56,28 @@ class _StadiumHomePageState extends State<StadiumHomePage> {
   void initState() {
     super.initState();
     _stadiumsFuture = _loadStadiums();
-    _favoriteIdsFuture = _loadFavoriteIds();
+    _refreshFavoriteIds();
+    _scrollController.addListener(_handleScroll);
     widget.favoritesVersion?.addListener(_handleFavoritesChanged);
   }
 
   Future<List<Stadium>> _loadStadiums() async {
     try {
-      final dynamicStadiums = await managerStadiumService.listPublicStadiums();
+      _nextStadiumOffset = 0;
+      _hasMoreStadiums = true;
+      _loadMoreError = null;
+
+      final dynamicStadiums = await managerStadiumService.listPublicStadiums(
+        limit: _stadiumPageSize,
+        offset: _nextStadiumOffset,
+      );
       _allStadiums = dynamicStadiums;
+      _nextStadiumOffset = dynamicStadiums.length;
+      _hasMoreStadiums = dynamicStadiums.length == _stadiumPageSize;
       return dynamicStadiums;
     } catch (error) {
-      print('Error loading stadiums: $error');
       _allStadiums = [];
+      _hasMoreStadiums = false;
       return [];
     }
   }
@@ -77,6 +93,7 @@ class _StadiumHomePageState extends State<StadiumHomePage> {
 
   @override
   void dispose() {
+    _scrollController.dispose();
     _searchController.dispose();
     widget.favoritesVersion?.removeListener(_handleFavoritesChanged);
     super.dispose();
@@ -89,10 +106,16 @@ class _StadiumHomePageState extends State<StadiumHomePage> {
   }
 
   void _handleFavoritesChanged() {
-    final favoriteIdsFuture = _loadFavoriteIds();
-    setState(() {
-      _favoriteIdsFuture = favoriteIdsFuture;
-    });
+    _refreshFavoriteIds();
+  }
+
+  Future<void> _refreshFavoriteIds() async {
+    try {
+      await _loadFavoriteIds();
+      if (mounted) setState(() {});
+    } catch (_) {
+      if (mounted) setState(() => _favoriteIds = {});
+    }
   }
 
   @override
@@ -115,6 +138,7 @@ class _StadiumHomePageState extends State<StadiumHomePage> {
                   behavior: HitTestBehavior.translucent,
                   onTap: () => FocusScope.of(context).unfocus(),
                   child: CustomScrollView(
+                    controller: _scrollController,
                     keyboardDismissBehavior:
                         ScrollViewKeyboardDismissBehavior.onDrag,
                     physics: const BouncingScrollPhysics(),
@@ -188,6 +212,14 @@ class _StadiumHomePageState extends State<StadiumHomePage> {
                               )
                             : SliverList.separated(
                                 itemBuilder: (context, index) {
+                                  if (index >= filteredStadiums.length) {
+                                    return _StadiumPaginationFooter(
+                                      isLoading: _isLoadingMoreStadiums,
+                                      hasError: _loadMoreError != null,
+                                      onRetry: _loadNextStadiumPage,
+                                    );
+                                  }
+
                                   final stadium = filteredStadiums[index];
                                   return _StadiumCard(
                                     stadium: stadium,
@@ -207,7 +239,9 @@ class _StadiumHomePageState extends State<StadiumHomePage> {
                                 },
                                 separatorBuilder: (context, index) =>
                                     const SizedBox(height: 14),
-                                itemCount: filteredStadiums.length,
+                                itemCount:
+                                    filteredStadiums.length +
+                                    (_shouldShowPaginationFooter ? 1 : 0),
                               ),
                       ),
                     ],
@@ -225,6 +259,55 @@ class _StadiumHomePageState extends State<StadiumHomePage> {
 
   bool _isUpdating(Stadium stadium) =>
       _updatingFavoriteIds.contains(stadium.id);
+
+  bool get _shouldShowPaginationFooter {
+    if (_searchQuery.trim().isNotEmpty) return false;
+    return _isLoadingMoreStadiums ||
+        _loadMoreError != null ||
+        _hasMoreStadiums;
+  }
+
+  void _handleScroll() {
+    if (_searchQuery.trim().isNotEmpty || !_scrollController.hasClients) {
+      return;
+    }
+
+    if (_scrollController.position.extentAfter < _loadMoreThreshold) {
+      _loadNextStadiumPage();
+    }
+  }
+
+  Future<void> _loadNextStadiumPage() async {
+    if (_isLoadingMoreStadiums || !_hasMoreStadiums) return;
+
+    setState(() {
+      _isLoadingMoreStadiums = true;
+      _loadMoreError = null;
+    });
+
+    try {
+      final nextStadiums = await managerStadiumService.listPublicStadiums(
+        limit: _stadiumPageSize,
+        offset: _nextStadiumOffset,
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _allStadiums = [..._allStadiums, ...nextStadiums];
+        _nextStadiumOffset += nextStadiums.length;
+        _hasMoreStadiums = nextStadiums.length == _stadiumPageSize;
+        _isLoadingMoreStadiums = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+
+      setState(() {
+        _loadMoreError = error;
+        _isLoadingMoreStadiums = false;
+      });
+    }
+  }
 
   List<Stadium> _filteredStadiums(List<Stadium> source) {
     final query = _searchQuery.trim().toLowerCase();
@@ -604,37 +687,75 @@ class _EmptySearchResult extends StatelessWidget {
   }
 }
 
-class _QuickFilter extends StatelessWidget {
-  const _QuickFilter({required this.icon, required this.label});
+class _StadiumPaginationFooter extends StatelessWidget {
+  const _StadiumPaginationFooter({
+    required this.isLoading,
+    required this.hasError,
+    required this.onRetry,
+  });
 
-  final IconData icon;
-  final String label;
+  final bool isLoading;
+  final bool hasError;
+  final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 44,
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: .07),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withValues(alpha: .09)),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon, size: 16, color: Colors.white.withValues(alpha: .78)),
-          const SizedBox(width: 6),
-          Flexible(
-            child: Text(
-              label,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                color: Colors.white.withValues(alpha: .82),
-                fontWeight: FontWeight.w700,
+    final colors = context.appColors;
+
+    if (!isLoading && !hasError) {
+      return const SizedBox(height: 8);
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: GlassContainer(
+        borderRadius: 18,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (isLoading) ...[
+              SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: colors.selection,
+                ),
               ),
-            ),
-          ),
-        ],
+              const SizedBox(width: 10),
+              Text(
+                'Loading more stadiums',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: .72),
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ] else ...[
+              Expanded(
+                child: Text(
+                  'Could not load more stadiums',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: .72),
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Retry',
+                onPressed: onRetry,
+                style: IconButton.styleFrom(
+                  foregroundColor: colors.action,
+                  minimumSize: const Size(40, 40),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                icon: const Icon(Icons.refresh_rounded, size: 21),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

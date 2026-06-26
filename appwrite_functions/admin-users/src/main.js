@@ -14,6 +14,7 @@ const ADMIN_MANAGED_ROLES = new Set(["admin", "manager"]);
 const DATABASE_ID = "stadium_booking";
 const BOOKINGS_TABLE_ID = "bookings";
 const BOOKED_SLOTS_TABLE_ID = "booked_slots";
+const FAVORITES_TABLE_ID = "favorites";
 const STADIUMS_TABLE_ID = "stadiums";
 const ACTIVE_STATUS = "active";
 const PENDING_STATUS = "pending";
@@ -190,6 +191,117 @@ async function managerIdForStadium(tables, stadiumId) {
     if (err?.code === 404) return null;
     throw err;
   }
+}
+
+async function listAllRows(tables, tableId, queries = []) {
+  const rows = [];
+  let offset = 0;
+  const limit = 100;
+
+  while (true) {
+    const result = await tables.listRows(DATABASE_ID, tableId, [
+      ...queries,
+      Query.limit(limit),
+      Query.offset(offset),
+    ]);
+    const page = result.rows ?? [];
+    rows.push(...page);
+
+    if (page.length < limit) break;
+    offset += limit;
+  }
+
+  return rows;
+}
+
+async function deleteRows(tables, tableId, rows) {
+  for (const row of rows) {
+    try {
+      await tables.deleteRow(DATABASE_ID, tableId, row.$id);
+    } catch (err) {
+      if (err?.code !== 404) {
+        throw err;
+      }
+    }
+  }
+}
+
+async function denyBookingAndReleaseSlot(tables, booking) {
+  const data = booking.data ?? booking;
+  await tables.updateRow(
+    DATABASE_ID,
+    BOOKINGS_TABLE_ID,
+    booking.$id,
+    { status: DENIED_STATUS },
+    bookingPermissions(data.userId, data.stadiumId),
+  );
+
+  try {
+    await tables.deleteRow(DATABASE_ID, BOOKED_SLOTS_TABLE_ID, data.slotId);
+  } catch (err) {
+    if (err?.code !== 404) {
+      throw err;
+    }
+  }
+}
+
+async function deleteUserOwnedRows(tables, targetUserId) {
+  const bookings = await listAllRows(tables, BOOKINGS_TABLE_ID, [
+    Query.equal("userId", targetUserId),
+  ]);
+  for (const booking of bookings) {
+    const data = booking.data ?? booking;
+    try {
+      await tables.deleteRow(DATABASE_ID, BOOKED_SLOTS_TABLE_ID, data.slotId);
+    } catch (err) {
+      if (err?.code !== 404) {
+        throw err;
+      }
+    }
+  }
+  await deleteRows(tables, BOOKINGS_TABLE_ID, bookings);
+
+  const favorites = await listAllRows(tables, FAVORITES_TABLE_ID, [
+    Query.equal("userId", targetUserId),
+  ]);
+  await deleteRows(tables, FAVORITES_TABLE_ID, favorites);
+}
+
+async function deleteManagerStadiumData(tables, managerId) {
+  let stadium;
+  try {
+    stadium = await tables.getRow(DATABASE_ID, STADIUMS_TABLE_ID, managerId);
+  } catch (err) {
+    if (err?.code === 404) return;
+    throw err;
+  }
+
+  const stadiumId = stadium.$id;
+  const pendingBookings = await listAllRows(tables, BOOKINGS_TABLE_ID, [
+    Query.equal("stadiumId", stadiumId),
+    Query.equal("status", PENDING_STATUS),
+  ]);
+  for (const booking of pendingBookings) {
+    await denyBookingAndReleaseSlot(tables, booking);
+  }
+
+  const stadiumFavorites = await listAllRows(tables, FAVORITES_TABLE_ID, [
+    Query.equal("stadiumId", stadiumId),
+  ]);
+  await deleteRows(tables, FAVORITES_TABLE_ID, stadiumFavorites);
+
+  const bookedSlots = await listAllRows(tables, BOOKED_SLOTS_TABLE_ID, [
+    Query.equal("stadiumId", stadiumId),
+  ]);
+  await deleteRows(tables, BOOKED_SLOTS_TABLE_ID, bookedSlots);
+
+  await tables.deleteRow(DATABASE_ID, STADIUMS_TABLE_ID, stadiumId);
+}
+
+async function deleteUserAndOwnedData({ users, tables, targetUserId }) {
+  await deleteUserOwnedRows(tables, targetUserId);
+  await deleteManagerStadiumData(tables, targetUserId);
+  await users.delete(targetUserId);
 }
 
 async function createBooking({ tables, callerId, body, res }) {
@@ -670,7 +782,7 @@ export default async ({ req, res, log, error }) => {
       }
 
       if (action === "delete") {
-        await users.delete(targetUserId);
+        await deleteUserAndOwnedData({ users, tables, targetUserId });
       }
 
       usersCache.users = null;
