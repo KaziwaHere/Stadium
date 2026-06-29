@@ -10,6 +10,7 @@ import 'package:stadium/src/theme/app_theme.dart';
 import 'package:stadium/src/widgets/app_confirmation_dialog.dart';
 import 'package:stadium/src/utils/stadium_schedule.dart';
 import 'package:stadium/src/widgets/app_notification.dart';
+import 'package:stadium/src/widgets/stadium_image.dart';
 
 class BookingsPage extends StatefulWidget {
   const BookingsPage({
@@ -318,6 +319,7 @@ class _BookingsPageState extends State<BookingsPage> {
       iconKey: favorite.iconKey,
       icon: favorite.icon,
       days: buildBookingDays(),
+      imageFileId: favorite.imageFileId,
     );
   }
 
@@ -336,6 +338,7 @@ class _BookingsPageState extends State<BookingsPage> {
       iconKey: booking.iconKey,
       icon: booking.icon,
       days: buildBookingDays(),
+      imageFileId: booking.imageFileId,
     );
   }
 }
@@ -699,21 +702,31 @@ class BookingHistoryPage extends StatelessWidget {
 }
 
 class _BookingLeadingIcon extends StatelessWidget {
-  const _BookingLeadingIcon({required this.icon, required this.gradient});
+  const _BookingLeadingIcon({
+    required this.icon,
+    required this.gradient,
+    this.imageFileId,
+  });
 
   final IconData icon;
   final List<Color> gradient;
+  final String? imageFileId;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: 58,
       height: 58,
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         gradient: LinearGradient(colors: gradient),
         borderRadius: BorderRadius.circular(18),
       ),
-      child: Icon(icon, color: Colors.white.withValues(alpha: .88)),
+      child: StadiumImage(
+        fileId: imageFileId,
+        fallbackIcon: icon,
+        iconSize: 28,
+      ),
     );
   }
 }
@@ -738,7 +751,11 @@ class _BookingOpenArea extends StatelessWidget {
         onTap: onOpen,
         child: Row(
           children: [
-            _BookingLeadingIcon(icon: booking.icon, gradient: gradient),
+            _BookingLeadingIcon(
+              icon: booking.icon,
+              gradient: gradient,
+              imageFileId: booking.imageFileId,
+            ),
             const SizedBox(width: 14),
             Expanded(child: _BookingDetails(booking: booking)),
           ],
@@ -1150,13 +1167,15 @@ class _HeartedStadiumCard extends StatelessWidget {
             Container(
               width: 58,
               height: 58,
+              clipBehavior: Clip.antiAlias,
               decoration: BoxDecoration(
                 gradient: LinearGradient(colors: gradient),
                 borderRadius: BorderRadius.circular(18),
               ),
-              child: Icon(
-                stadium.icon,
-                color: Colors.white.withValues(alpha: .88),
+              child: StadiumImage(
+                fileId: stadium.imageFileId,
+                fallbackIcon: stadium.icon,
+                iconSize: 28,
               ),
             ),
             const SizedBox(width: 14),

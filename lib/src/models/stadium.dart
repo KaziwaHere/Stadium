@@ -11,6 +11,7 @@ class Stadium {
     required this.iconKey,
     required this.icon,
     required this.days,
+    this.imageFileId,
   });
 
   final String id;
@@ -22,6 +23,7 @@ class Stadium {
   final String iconKey;
   final IconData icon;
   final List<BookingDay> days;
+  final String? imageFileId;
 }
 
 IconData stadiumIconFromKey(String iconKey) {

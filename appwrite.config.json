@@ -52,7 +52,7 @@
             "enabled": true,
             "logging": true,
             "runtime": "node-22",
-            "buildSpecification": "s-0.5vcpu-512mb",
+            "buildSpecification": "s-2vcpu-2gb",
             "runtimeSpecification": "s-0.5vcpu-512mb",
             "deploymentRetention": 7,
             "execute": ["users"],
@@ -78,7 +78,7 @@
             "$id": "stadiums",
             "$permissions": [
                 "read(\"any\")",
-                "create(\"users\")"
+                "create(\"label:manager\")"
             ],
             "databaseId": "stadium_booking",
             "name": "Stadiums",
@@ -136,6 +136,15 @@
                     "required": true,
                     "array": false,
                     "size": 64,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
+                    "key": "imageFileId",
+                    "type": "string",
+                    "required": false,
+                    "array": false,
+                    "size": 36,
                     "default": null,
                     "encrypt": false
                 }
@@ -308,6 +317,15 @@
                     "encrypt": false
                 },
                 {
+                    "key": "imageFileId",
+                    "type": "string",
+                    "required": false,
+                    "array": false,
+                    "size": 36,
+                    "default": null,
+                    "encrypt": false
+                },
+                {
                     "key": "dayLabel",
                     "type": "string",
                     "required": true,
@@ -458,6 +476,15 @@
                     "size": 64,
                     "default": null,
                     "encrypt": false
+                },
+                {
+                    "key": "imageFileId",
+                    "type": "string",
+                    "required": false,
+                    "array": false,
+                    "size": 36,
+                    "default": null,
+                    "encrypt": false
                 }
             ],
             "indexes": [
@@ -593,6 +620,28 @@
                 }
             ],
             "indexes": []
+        }
+    ],
+    "buckets": [
+        {
+            "$id": "profile-pictures",
+            "$permissions": [
+                "create(\"users\")",
+                "read(\"label:admin\")"
+            ],
+            "name": "Profile Pictures",
+            "enabled": true,
+            "fileSecurity": true,
+            "maximumFileSize": 5242880,
+            "allowedFileExtensions": [
+                "jpg",
+                "jpeg",
+                "png",
+                "webp"
+            ],
+            "compression": "none",
+            "encryption": true,
+            "antivirus": true
         }
     ]
 }

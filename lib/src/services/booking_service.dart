@@ -89,7 +89,7 @@ class BookingService implements BookingsRepository {
     ]);
     final now = DateTime.now();
     return bookings
-        .where((booking) => _belongsInActiveBookings(booking, now: now))
+        .where((booking) => booking.belongsInCurrentBookings(now: now))
         .toList();
   }
 
@@ -103,7 +103,7 @@ class BookingService implements BookingsRepository {
     ]);
     final now = DateTime.now();
     return bookings
-        .where((booking) => _belongsInBookingHistory(booking, now: now))
+        .where((booking) => booking.belongsInHistory(now: now))
         .toList();
   }
 
@@ -195,6 +195,7 @@ class BookingService implements BookingsRepository {
       'rating': stadium.rating,
       'price': stadium.price,
       'icon': stadium.iconKey,
+      if (stadium.imageFileId != null) 'imageFileId': stadium.imageFileId,
       'dayLabel': day.label,
       'dayDate': day.date,
       'slotTime': slot.time,
@@ -341,24 +342,6 @@ class BookingService implements BookingsRepository {
       cancelledStatus => 3,
       _ => 4,
     };
-  }
-
-  bool _belongsInActiveBookings(StadiumBooking booking, {DateTime? now}) {
-    if (booking.isToday(now: now)) return true;
-    if (booking.status == pendingStatus) return true;
-    return booking.status == activeStatus && !booking.isBeforeToday(now: now);
-  }
-
-  bool _belongsInBookingHistory(StadiumBooking booking, {DateTime? now}) {
-    if (booking.status == deniedStatus || booking.status == cancelledStatus) {
-      return !booking.isToday(now: now);
-    }
-
-    if (booking.status == activeStatus) {
-      return booking.isBeforeToday(now: now);
-    }
-
-    return false;
   }
 
   Future<Map<String, dynamic>> _executeBookingFunction(
@@ -621,14 +604,20 @@ class StadiumBooking {
     required this.rating,
     required this.price,
     required this.iconKey,
+    this.imageFileId,
     required this.dayLabel,
     required this.dayDate,
     required this.slotTime,
     required this.status,
+    this.statusChangedAt,
   });
 
   factory StadiumBooking.fromRow(models.Row row) {
-    return StadiumBooking.fromMap({'\$id': row.$id, ...row.data});
+    return StadiumBooking.fromMap({
+      '\$id': row.$id,
+      '\$updatedAt': row.$updatedAt,
+      ...row.data,
+    });
   }
 
   factory StadiumBooking.fromMap(Map<String, dynamic> data) {
@@ -643,10 +632,12 @@ class StadiumBooking {
       rating: (data['rating'] as num).toDouble(),
       price: (data['price'] as num).toInt(),
       iconKey: data['icon'].toString(),
+      imageFileId: _optionalBookingImageFileId(data['imageFileId']),
       dayLabel: data['dayLabel'].toString(),
       dayDate: data['dayDate'].toString(),
       slotTime: data['slotTime'].toString(),
       status: data['status'].toString(),
+      statusChangedAt: _parseServerDate(data[r'$updatedAt']),
     );
   }
 
@@ -660,10 +651,12 @@ class StadiumBooking {
   final double rating;
   final int price;
   final String iconKey;
+  final String? imageFileId;
   final String dayLabel;
   final String dayDate;
   final String slotTime;
   final String status;
+  final DateTime? statusChangedAt;
 
   IconData get icon => stadiumIconFromKey(iconKey);
 
@@ -715,6 +708,44 @@ class StadiumBooking {
 
     return !slotEndsAt.isAfter(now ?? DateTime.now());
   }
+
+  bool belongsInCurrentBookings({DateTime? now}) {
+    final currentTime = now ?? DateTime.now();
+    if (_isTerminalStatus) return statusChangedToday(now: currentTime);
+    if (isToday(now: currentTime)) return true;
+    if (status == BookingService.pendingStatus) return true;
+    return status == BookingService.activeStatus &&
+        !isBeforeToday(now: currentTime);
+  }
+
+  bool belongsInHistory({DateTime? now}) {
+    final currentTime = now ?? DateTime.now();
+    if (_isTerminalStatus) return !statusChangedToday(now: currentTime);
+    return status == BookingService.activeStatus &&
+        isBeforeToday(now: currentTime);
+  }
+
+  bool statusChangedToday({DateTime? now}) {
+    final currentTime = now ?? DateTime.now();
+    final changedAt = statusChangedAt?.toLocal();
+    if (changedAt == null) return isToday(now: currentTime);
+    return _isSameDate(changedAt, currentTime);
+  }
+
+  bool get _isTerminalStatus =>
+      status == BookingService.deniedStatus ||
+      status == BookingService.cancelledStatus;
+}
+
+String? _optionalBookingImageFileId(dynamic value) {
+  final text = value?.toString().trim();
+  return text == null || text.isEmpty ? null : text;
+}
+
+DateTime? _parseServerDate(dynamic value) {
+  final text = value?.toString().trim();
+  if (text == null || text.isEmpty) return null;
+  return DateTime.tryParse(text);
 }
 
 DateTime _startOfDay(DateTime value) {

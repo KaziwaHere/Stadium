@@ -326,7 +326,8 @@ function Ensure-BookedSlotMarkersFromBookings {
 Ensure-Database -Id $DatabaseId -Name "Stadium Booking"
 Ensure-TablesDbDatabase -Id $DatabaseId -Name "Stadium Booking"
 
-Ensure-Collection -Id "stadiums" -Name "Stadiums" -Permissions @('read("any")') -DocumentSecurity $false
+Ensure-Collection -Id "stadiums" -Name "Stadiums" -Permissions @('read("any")', 'create("label:manager")') -DocumentSecurity $true
+Ensure-TablesDbTable -Id "stadiums" -Name "Stadiums" -Permissions @('read("any")', 'create("label:manager")') -RowSecurity $true
 Ensure-Collection -Id "slots" -Name "Slots" -Permissions @('read("any")') -DocumentSecurity $false
 Ensure-Collection -Id "booked_slots" -Name "Booked Slots" -Permissions @('create("users")', 'read("any")') -DocumentSecurity $true
 Ensure-Collection -Id "bookings" -Name "Bookings" -Permissions @('create("users")', 'read("any")') -DocumentSecurity $true
@@ -339,6 +340,7 @@ Ensure-Attribute -CollectionId "stadiums" -Kind "float" -Definition @{ key = "ra
 Ensure-Attribute -CollectionId "stadiums" -Kind "integer" -Definition @{ key = "price"; required = $true; array = $false }
 Ensure-Attribute -CollectionId "stadiums" -Kind "string" -Definition @{ key = "available"; size = 64; required = $true; array = $false; encrypt = $false }
 Ensure-Attribute -CollectionId "stadiums" -Kind "string" -Definition @{ key = "icon"; size = 64; required = $true; array = $false; encrypt = $false }
+Ensure-Attribute -CollectionId "stadiums" -Kind "string" -Definition @{ key = "imageFileId"; size = 36; required = $false; array = $false; encrypt = $false }
 
 Ensure-Attribute -CollectionId "slots" -Kind "string" -Definition @{ key = "stadiumId"; size = 36; required = $true; array = $false; encrypt = $false }
 Ensure-Attribute -CollectionId "slots" -Kind "string" -Definition @{ key = "date"; size = 32; required = $true; array = $false; encrypt = $false }
@@ -360,6 +362,7 @@ Ensure-Attribute -CollectionId "bookings" -Kind "string" -Definition @{ key = "l
 Ensure-Attribute -CollectionId "bookings" -Kind "float" -Definition @{ key = "rating"; required = $true; array = $false }
 Ensure-Attribute -CollectionId "bookings" -Kind "integer" -Definition @{ key = "price"; required = $true; array = $false }
 Ensure-Attribute -CollectionId "bookings" -Kind "string" -Definition @{ key = "icon"; size = 64; required = $true; array = $false; encrypt = $false }
+Ensure-Attribute -CollectionId "bookings" -Kind "string" -Definition @{ key = "imageFileId"; size = 36; required = $false; array = $false; encrypt = $false }
 Ensure-Attribute -CollectionId "bookings" -Kind "string" -Definition @{ key = "dayLabel"; size = 32; required = $true; array = $false; encrypt = $false }
 Ensure-Attribute -CollectionId "bookings" -Kind "string" -Definition @{ key = "dayDate"; size = 32; required = $true; array = $false; encrypt = $false }
 Ensure-Attribute -CollectionId "bookings" -Kind "string" -Definition @{ key = "slotTime"; size = 32; required = $true; array = $false; encrypt = $false }
@@ -374,6 +377,7 @@ Ensure-Attribute -CollectionId "favorites" -Kind "float" -Definition @{ key = "r
 Ensure-Attribute -CollectionId "favorites" -Kind "integer" -Definition @{ key = "price"; required = $true; array = $false }
 Ensure-Attribute -CollectionId "favorites" -Kind "string" -Definition @{ key = "available"; size = 64; required = $true; array = $false; encrypt = $false }
 Ensure-Attribute -CollectionId "favorites" -Kind "string" -Definition @{ key = "icon"; size = 64; required = $true; array = $false; encrypt = $false }
+Ensure-Attribute -CollectionId "favorites" -Kind "string" -Definition @{ key = "imageFileId"; size = 36; required = $false; array = $false; encrypt = $false }
 
 Ensure-TablesDbColumn -TableId "contact_details" -Kind "string" -Definition @{ key = "email"; size = 128; required = $true; array = $false; encrypt = $false }
 Ensure-TablesDbColumn -TableId "contact_details" -Kind "string" -Definition @{ key = "phone"; size = 32; required = $true; array = $false; encrypt = $false }

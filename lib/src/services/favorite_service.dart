@@ -94,6 +94,7 @@ class FavoriteService implements FavoritesRepository {
         'price': stadium.price,
         'available': stadium.available,
         'icon': stadium.iconKey,
+        if (stadium.imageFileId != null) 'imageFileId': stadium.imageFileId,
       },
       permissions: [
         Permission.read(Role.user(userId)),
@@ -227,6 +228,7 @@ class FavoriteStadium {
     required this.price,
     required this.available,
     required this.iconKey,
+    this.imageFileId,
   });
 
   factory FavoriteStadium.fromRow(models.Row row) {
@@ -241,6 +243,7 @@ class FavoriteStadium {
       price: (data['price'] as num).toInt(),
       available: data['available'].toString(),
       iconKey: data['icon'].toString(),
+      imageFileId: _optionalImageFileId(data['imageFileId']),
     );
   }
 
@@ -252,8 +255,14 @@ class FavoriteStadium {
   final int price;
   final String available;
   final String iconKey;
+  final String? imageFileId;
 
   IconData get icon => stadiumIconFromKey(iconKey);
+}
+
+String? _optionalImageFileId(dynamic value) {
+  final text = value?.toString().trim();
+  return text == null || text.isEmpty ? null : text;
 }
 
 final FavoritesRepository favoriteService = FavoriteService(TablesDB(client));

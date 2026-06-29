@@ -10,6 +10,7 @@ import 'package:stadium/src/services/favorite_service.dart';
 import 'package:stadium/src/services/manager_stadium_service.dart';
 import 'package:stadium/src/theme/app_theme.dart';
 import 'package:stadium/src/widgets/app_notification.dart';
+import 'package:stadium/src/widgets/stadium_image.dart';
 
 class StadiumHomePage extends StatefulWidget {
   const StadiumHomePage({
@@ -262,9 +263,7 @@ class _StadiumHomePageState extends State<StadiumHomePage> {
 
   bool get _shouldShowPaginationFooter {
     if (_searchQuery.trim().isNotEmpty) return false;
-    return _isLoadingMoreStadiums ||
-        _loadMoreError != null ||
-        _hasMoreStadiums;
+    return _isLoadingMoreStadiums || _loadMoreError != null || _hasMoreStadiums;
   }
 
   void _handleScroll() {
@@ -821,6 +820,7 @@ class _FeaturedStadium extends StatelessWidget {
         children: [
           Container(
             height: 190,
+            clipBehavior: Clip.antiAlias,
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
@@ -838,15 +838,37 @@ class _FeaturedStadium extends StatelessWidget {
             ),
             child: Stack(
               children: [
-                Positioned(
-                  right: -18,
-                  bottom: -22,
-                  child: Icon(
-                    stadium.icon,
-                    size: 158,
-                    color: Colors.white.withValues(alpha: .13),
+                if (stadium.imageFileId != null) ...[
+                  Positioned.fill(
+                    child: StadiumImage(
+                      fileId: stadium.imageFileId,
+                      fallbackIcon: stadium.icon,
+                    ),
                   ),
-                ),
+                  Positioned.fill(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.black.withValues(alpha: .08),
+                            Colors.black.withValues(alpha: .7),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ] else
+                  Positioned(
+                    right: -18,
+                    bottom: -22,
+                    child: Icon(
+                      stadium.icon,
+                      size: 158,
+                      color: Colors.white.withValues(alpha: .13),
+                    ),
+                  ),
                 Positioned(
                   left: 18,
                   top: 18,
@@ -956,14 +978,14 @@ class _StadiumCard extends StatelessWidget {
             Container(
               width: 88,
               height: 96,
+              clipBehavior: Clip.antiAlias,
               decoration: BoxDecoration(
                 gradient: LinearGradient(colors: gradient),
                 borderRadius: BorderRadius.circular(20),
               ),
-              child: Icon(
-                stadium.icon,
-                size: 42,
-                color: Colors.white.withValues(alpha: .86),
+              child: StadiumImage(
+                fileId: stadium.imageFileId,
+                fallbackIcon: stadium.icon,
               ),
             ),
             const SizedBox(width: 14),

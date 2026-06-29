@@ -3,24 +3,24 @@ import 'package:flutter/material.dart';
 class AppTheme {
   const AppTheme._();
 
-  static const primaryColor = Color.fromARGB(255, 3, 128, 44);
+  static const primaryColor = Color.fromARGB(255, 65, 164, 166);
   static const onPrimaryColor = Color(0xFF032014);
-  static const backgroundColor = Color(0xFF060B14);
+  static const backgroundColor = Color.fromARGB(255, 9, 33, 34);
 
   static const colors = AppColors(
-    action: Color.fromARGB(255, 3, 128, 44),
+    action: Color.fromARGB(255, 65, 164, 166),
     onAction: Color.fromARGB(255, 252, 252, 252),
-    selection: Color.fromARGB(255, 13, 168, 73),
+    selection: Color.fromARGB(255, 65, 164, 166),
     onSelection: Color(0xFF031A22),
-    mutedIcon: Color.fromARGB(255, 11, 99, 40),
+    mutedIcon: Color.fromARGB(255, 65, 164, 166),
     glassFill: Color(0x14FFFFFF),
     glassBorder: Color(0x24FFFFFF),
     navFill: Color(0xA80D1726),
     activeNavFill: Color(0x1FB8C2C0),
     shadow: Color(0x38000000),
     star: Color(0xFFFFD86B),
-    backgroundGradient: [Color(0xFF111B2A), backgroundColor, Color(0xFF02050B)],
-    ambientGlows: [Color(0x38586F9A), Color(0x8C17233A), Color(0x3D263A5A)],
+    backgroundGradient: [Color(0xFF032014), backgroundColor, Color(0xFF032014)],
+    ambientGlows: [Color(0xFF114142), Color(0xFF114142), Color(0xFF114142)],
     stadiumGradients: [
       [Color(0xFF1C2835), Color(0xFF34495D)],
       [Color(0xFF172131), Color(0xFF2E3E55)],

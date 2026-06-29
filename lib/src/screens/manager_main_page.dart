@@ -23,14 +23,7 @@ class ManagerMainPage extends StatefulWidget {
 
 class _ManagerMainPageState extends State<ManagerMainPage> {
   int _selectedIndex = 0;
-
-  final ValueNotifier<int> _version = ValueNotifier<int>(0);
-
-  @override
-  void dispose() {
-    _version.dispose();
-    super.dispose();
-  }
+  int _scheduleVersion = 0;
 
   @override
   Widget build(BuildContext context) {
@@ -67,12 +60,20 @@ class _ManagerMainPageState extends State<ManagerMainPage> {
       _NavigationDestination(
         icon: Icons.home_work_rounded,
         label: 'My Stadium',
-        page: ManagerStadiumPage(user: widget.user),
+        page: ManagerStadiumPage(
+          user: widget.user,
+          refreshVersion: _scheduleVersion,
+        ),
       ),
       _NavigationDestination(
         icon: Icons.assignment_rounded,
         label: 'Requests',
-        page: ManagerRequestsPage(user: widget.user),
+        page: ManagerRequestsPage(
+          user: widget.user,
+          onRequestsChanged: () {
+            if (mounted) setState(() => _scheduleVersion++);
+          },
+        ),
       ),
       _NavigationDestination(
         icon: Icons.person_rounded,

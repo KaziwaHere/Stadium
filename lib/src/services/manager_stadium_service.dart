@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:appwrite/appwrite.dart';
 import 'package:appwrite/models.dart' as models;
 import 'package:stadium/src/appwrite_client.dart';
@@ -12,20 +14,25 @@ abstract class ManagerStadiumRepository {
     required String name,
     required String location,
     required int price,
+    Uint8List? imageBytes,
+    String? imageFilename,
   });
 
   Future<List<Stadium>> listPublicStadiums({int limit = 20, int offset = 0});
 }
 
 class ManagerStadiumService implements ManagerStadiumRepository {
-  ManagerStadiumService(this._tables);
+  ManagerStadiumService(this._tables, this._storage);
 
   static const databaseId = 'stadium_booking';
   static const tableId = 'stadiums';
   static const _defaultRating = 4.8;
   static const _defaultIconKey = 'stadium';
+  static const imageBucketId = 'profile-pictures';
+  static const maximumImageSize = 5 * 1024 * 1024;
 
   final TablesDB _tables;
+  final Storage _storage;
 
   @override
   Future<Stadium?> managerStadium(String managerId) async {
@@ -49,7 +56,31 @@ class ManagerStadiumService implements ManagerStadiumRepository {
     required String name,
     required String location,
     required int price,
+    Uint8List? imageBytes,
+    String? imageFilename,
   }) async {
+    if (imageBytes != null && imageBytes.lengthInBytes > maximumImageSize) {
+      throw ArgumentError('Choose an image smaller than 5 MB.');
+    }
+
+    String? uploadedFileId;
+    if (imageBytes != null) {
+      final file = await _storage.createFile(
+        bucketId: imageBucketId,
+        fileId: ID.unique(),
+        file: InputFile.fromBytes(
+          bytes: imageBytes,
+          filename: imageFilename ?? 'stadium.jpg',
+        ),
+        permissions: [
+          Permission.read(Role.users()),
+          Permission.update(Role.user(managerId)),
+          Permission.delete(Role.user(managerId)),
+        ],
+      );
+      uploadedFileId = file.$id;
+    }
+
     final payload = {
       'name': name,
       'location': location,
@@ -57,34 +88,49 @@ class ManagerStadiumService implements ManagerStadiumRepository {
       'rating': _defaultRating,
       'available': nextAvailabilityLabel(),
       'icon': _defaultIconKey,
+      'imageFileId': ?uploadedFileId,
     };
 
-    models.Row row;
-
     try {
-      row = await _tables.updateRow(
-        databaseId: databaseId,
-        tableId: tableId,
-        rowId: managerId,
-        data: payload,
-      );
-    } on AppwriteException catch (error) {
-      if (error.code != 404) rethrow;
+      models.Row row;
 
-      row = await _tables.createRow(
-        databaseId: databaseId,
-        tableId: tableId,
-        rowId: managerId,
-        data: payload,
-        permissions: [
-          Permission.read(Role.users()),
-          Permission.update(Role.user(managerId)),
-          Permission.delete(Role.user(managerId)),
-        ],
-      );
+      try {
+        row = await _tables.updateRow(
+          databaseId: databaseId,
+          tableId: tableId,
+          rowId: managerId,
+          data: payload,
+        );
+      } on AppwriteException catch (error) {
+        if (error.code != 404) rethrow;
+
+        row = await _tables.createRow(
+          databaseId: databaseId,
+          tableId: tableId,
+          rowId: managerId,
+          data: payload,
+          permissions: [
+            Permission.read(Role.users()),
+            Permission.update(Role.user(managerId)),
+            Permission.delete(Role.user(managerId)),
+          ],
+        );
+      }
+
+      return _stadiumFromRow(row);
+    } catch (_) {
+      if (uploadedFileId != null) {
+        try {
+          await _storage.deleteFile(
+            bucketId: imageBucketId,
+            fileId: uploadedFileId,
+          );
+        } on AppwriteException {
+          // Preserve the database error if cleanup also fails.
+        }
+      }
+      rethrow;
     }
-
-    return _stadiumFromRow(row);
   }
 
   @override
@@ -119,10 +165,17 @@ class ManagerStadiumService implements ManagerStadiumRepository {
       iconKey: data['icon']?.toString() ?? 'stadium',
       icon: stadiumIconFromKey(data['icon']?.toString() ?? 'stadium'),
       days: buildBookingDays(),
+      imageFileId: _optionalString(data['imageFileId']),
     );
+  }
+
+  String? _optionalString(dynamic value) {
+    final text = value?.toString().trim();
+    return text == null || text.isEmpty ? null : text;
   }
 }
 
 final ManagerStadiumRepository managerStadiumService = ManagerStadiumService(
   TablesDB(client),
+  Storage(client),
 );

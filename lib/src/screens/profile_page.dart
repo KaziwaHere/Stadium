@@ -2,9 +2,11 @@ import 'package:appwrite/appwrite.dart';
 import 'package:appwrite/models.dart' as models;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:stadium/src/screens/admin_page.dart';
 import 'package:stadium/src/screens/contact_details_page.dart';
 import 'package:stadium/src/services/auth_service.dart';
+import 'package:stadium/src/services/profile_picture_service.dart';
 import 'package:stadium/src/theme/app_theme.dart';
 import 'package:stadium/src/widgets/app_confirmation_dialog.dart';
 import 'package:stadium/src/widgets/app_notification.dart';
@@ -22,6 +24,7 @@ class ProfilePage extends StatefulWidget {
 class _ProfilePageState extends State<ProfilePage> {
   late models.User _user = widget.user;
   bool _isSigningOut = false;
+  bool _isUpdatingPicture = false;
 
   @override
   void initState() {
@@ -49,19 +52,11 @@ class _ProfilePageState extends State<ProfilePage> {
             children: [
               Row(
                 children: [
-                  Container(
-                    width: 72,
-                    height: 72,
-                    decoration: BoxDecoration(
-                      color: colors.glassFill,
-                      borderRadius: BorderRadius.circular(24),
-                      border: Border.all(color: colors.glassBorder),
-                    ),
-                    child: const Icon(
-                      Icons.person_rounded,
-                      color: Colors.white,
-                      size: 34,
-                    ),
+                  _ProfileAvatar(
+                    key: ValueKey(profilePictureService.fileId(_user)),
+                    user: _user,
+                    isUpdating: _isUpdatingPicture,
+                    onTap: _isUpdatingPicture ? null : _changeProfilePicture,
                   ),
                   const SizedBox(width: 16),
                   Expanded(
@@ -154,6 +149,101 @@ class _ProfilePageState extends State<ProfilePage> {
   String get _displayPhone => _user.phone.trim().isEmpty
       ? 'No phone number added'
       : _localPhoneNumber(_user.phone);
+
+  Future<void> _changeProfilePicture() async {
+    final hasPicture = profilePictureService.fileId(_user) != null;
+    final action = await showModalBottomSheet<_ProfilePictureAction>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _ProfilePictureSheet(hasPicture: hasPicture),
+    );
+    if (action == null || !mounted) return;
+
+    if (action == _ProfilePictureAction.remove) {
+      await _removeProfilePicture();
+      return;
+    }
+
+    final XFile? image;
+    try {
+      image = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1200,
+        maxHeight: 1200,
+        imageQuality: 88,
+      );
+    } on PlatformException catch (error) {
+      if (!mounted) return;
+      _showPictureError(error.message ?? 'Could not open your photo library.');
+      return;
+    } catch (_) {
+      if (!mounted) return;
+      _showPictureError('Could not open your photo library.');
+      return;
+    }
+    if (image == null || !mounted) return;
+
+    setState(() => _isUpdatingPicture = true);
+    try {
+      final bytes = await image.readAsBytes();
+      final user = await profilePictureService.upload(
+        user: _user,
+        bytes: bytes,
+        filename: image.name,
+      );
+      if (!mounted) return;
+      setState(() => _user = user);
+      showAppNotification(
+        context,
+        title: 'Photo updated',
+        message: 'Your new profile picture was saved.',
+        type: AppNotificationType.success,
+      );
+    } on AppwriteException catch (error) {
+      if (!mounted) return;
+      _showPictureError(error.message ?? 'Could not upload the image.');
+    } on ArgumentError catch (error) {
+      if (!mounted) return;
+      _showPictureError(error.message?.toString() ?? 'Invalid image.');
+    } catch (_) {
+      if (!mounted) return;
+      _showPictureError('Could not upload the image.');
+    } finally {
+      if (mounted) setState(() => _isUpdatingPicture = false);
+    }
+  }
+
+  Future<void> _removeProfilePicture() async {
+    setState(() => _isUpdatingPicture = true);
+    try {
+      final user = await profilePictureService.remove(_user);
+      if (!mounted) return;
+      setState(() => _user = user);
+      showAppNotification(
+        context,
+        title: 'Photo removed',
+        message: 'Your profile picture was removed.',
+        type: AppNotificationType.success,
+      );
+    } on AppwriteException catch (error) {
+      if (!mounted) return;
+      _showPictureError(error.message ?? 'Could not remove the image.');
+    } catch (_) {
+      if (!mounted) return;
+      _showPictureError('Could not remove the image.');
+    } finally {
+      if (mounted) setState(() => _isUpdatingPicture = false);
+    }
+  }
+
+  void _showPictureError(String message) {
+    showAppNotification(
+      context,
+      title: 'Photo update failed',
+      message: message,
+      type: AppNotificationType.error,
+    );
+  }
 
   Future<void> _refreshProfile({bool showError = true}) async {
     try {
@@ -261,6 +351,202 @@ class _ProfilePageState extends State<ProfilePage> {
         setState(() => _isSigningOut = false);
       }
     }
+  }
+}
+
+enum _ProfilePictureAction { choose, remove }
+
+class _ProfileAvatar extends StatefulWidget {
+  const _ProfileAvatar({
+    super.key,
+    required this.user,
+    required this.isUpdating,
+    required this.onTap,
+  });
+
+  final models.User user;
+  final bool isUpdating;
+  final VoidCallback? onTap;
+
+  @override
+  State<_ProfileAvatar> createState() => _ProfileAvatarState();
+}
+
+class _ProfileAvatarState extends State<_ProfileAvatar> {
+  Future<Uint8List>? _preview;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPreview();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ProfileAvatar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (profilePictureService.fileId(oldWidget.user) !=
+        profilePictureService.fileId(widget.user)) {
+      _loadPreview();
+    }
+  }
+
+  void _loadPreview() {
+    final fileId = profilePictureService.fileId(widget.user);
+    _preview = fileId == null ? null : profilePictureService.preview(fileId);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+
+    return Semantics(
+      button: true,
+      label: 'Change profile picture',
+      child: InkWell(
+        borderRadius: BorderRadius.circular(24),
+        onTap: widget.onTap,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Container(
+              width: 72,
+              height: 72,
+              clipBehavior: Clip.antiAlias,
+              decoration: BoxDecoration(
+                color: colors.glassFill,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: colors.glassBorder),
+              ),
+              child: widget.isUpdating
+                  ? const Center(
+                      child: CircularProgressIndicator(strokeWidth: 2.5),
+                    )
+                  : _preview == null
+                  ? const Icon(
+                      Icons.person_rounded,
+                      color: Colors.white,
+                      size: 34,
+                    )
+                  : FutureBuilder<Uint8List>(
+                      future: _preview,
+                      builder: (context, snapshot) {
+                        if (snapshot.hasData) {
+                          return Image.memory(
+                            snapshot.data!,
+                            fit: BoxFit.cover,
+                            gaplessPlayback: true,
+                          );
+                        }
+                        if (snapshot.hasError) {
+                          return const Icon(
+                            Icons.person_rounded,
+                            color: Colors.white,
+                            size: 34,
+                          );
+                        }
+                        return const Center(
+                          child: CircularProgressIndicator(strokeWidth: 2.5),
+                        );
+                      },
+                    ),
+            ),
+            Positioned(
+              right: -5,
+              bottom: -5,
+              child: Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  color: colors.action,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.surface,
+                    width: 2,
+                  ),
+                ),
+                child: Icon(
+                  Icons.camera_alt_rounded,
+                  color: colors.onAction,
+                  size: 15,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ProfilePictureSheet extends StatelessWidget {
+  const _ProfilePictureSheet({required this.hasPicture});
+
+  final bool hasPicture;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+
+    return Material(
+      color: Theme.of(context).colorScheme.surface,
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+      clipBehavior: Clip.antiAlias,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 42,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: .22),
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                'Profile picture',
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 16),
+              ListTile(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                tileColor: colors.glassFill,
+                leading: const Icon(Icons.photo_library_rounded),
+                title: const Text('Choose from gallery'),
+                subtitle: const Text('JPG, PNG, or WebP up to 5 MB'),
+                onTap: () =>
+                    Navigator.of(context).pop(_ProfilePictureAction.choose),
+              ),
+              if (hasPicture) ...[
+                const SizedBox(height: 10),
+                ListTile(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  tileColor: colors.glassFill,
+                  leading: const Icon(Icons.delete_outline_rounded),
+                  title: const Text('Remove current picture'),
+                  onTap: () =>
+                      Navigator.of(context).pop(_ProfilePictureAction.remove),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

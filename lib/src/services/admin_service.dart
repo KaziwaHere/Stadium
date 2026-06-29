@@ -324,6 +324,7 @@ class AdminUser {
     required this.id,
     required this.name,
     required this.phone,
+    this.profilePictureId,
     required this.roles,
     required this.status,
   });
@@ -331,6 +332,7 @@ class AdminUser {
   final String id;
   final String name;
   final String phone;
+  final String? profilePictureId;
   final List<String> roles;
   final bool status;
 
@@ -341,6 +343,7 @@ class AdminUser {
       id: (map['id'] ?? map['\$id'] ?? '').toString(),
       name: (map['name'] ?? '').toString(),
       phone: (map['phone'] ?? map['email'] ?? '').toString(),
+      profilePictureId: _optionalString(map['profilePictureId']),
       roles: roles is List ? roles.map((role) => role.toString()).toList() : [],
       status: map['status'] is bool ? map['status'] as bool : true,
     );
@@ -351,6 +354,7 @@ class AdminUser {
       'id': id,
       'name': name,
       'phone': phone,
+      'profilePictureId': profilePictureId,
       'roles': roles,
       'status': status,
     };
@@ -358,6 +362,11 @@ class AdminUser {
 
   String get displayName => name.trim().isEmpty ? 'Unnamed user' : name;
   String get displayRoles => roles.isEmpty ? 'user' : roles.join(', ');
+}
+
+String? _optionalString(Object? value) {
+  final text = value?.toString().trim();
+  return text == null || text.isEmpty ? null : text;
 }
 
 class AdminServiceException implements Exception {

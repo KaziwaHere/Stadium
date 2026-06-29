@@ -1,14 +1,16 @@
 import 'dart:async';
-
 import 'package:appwrite/appwrite.dart';
 import 'package:appwrite/models.dart' as models;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:stadium/src/models/stadium.dart';
 import 'package:stadium/src/services/booking_service.dart';
 import 'package:stadium/src/services/manager_stadium_service.dart';
 import 'package:stadium/src/theme/app_theme.dart';
 import 'package:stadium/src/utils/stadium_schedule.dart';
 import 'package:stadium/src/widgets/app_notification.dart';
+import 'package:stadium/src/widgets/stadium_image.dart';
 
 class ManagerStadiumPage extends StatefulWidget {
   const ManagerStadiumPage({
@@ -16,11 +18,13 @@ class ManagerStadiumPage extends StatefulWidget {
     required this.user,
     this.repository,
     this.bookingsRepository,
+    this.refreshVersion = 0,
   });
 
   final models.User user;
   final ManagerStadiumRepository? repository;
   final BookingsRepository? bookingsRepository;
+  final int refreshVersion;
 
   @override
   State<ManagerStadiumPage> createState() => _ManagerStadiumPageState();
@@ -86,6 +90,7 @@ class _ManagerStadiumPageState extends State<ManagerStadiumPage> {
                 managerId: widget.user.$id,
                 stadium: stadium,
                 bookingsRepository: _bookingsRepository,
+                refreshVersion: widget.refreshVersion,
               );
             },
           ),
@@ -119,6 +124,8 @@ class _ManagerStadiumPageState extends State<ManagerStadiumPage> {
           name: form.name,
           location: form.location,
           price: form.price,
+          imageBytes: form.imageBytes,
+          imageFilename: form.imageFilename,
         ),
       ),
     );
@@ -209,11 +216,13 @@ class _ManagerStadiumDetails extends StatelessWidget {
     required this.managerId,
     required this.stadium,
     required this.bookingsRepository,
+    required this.refreshVersion,
   });
 
   final String managerId;
   final Stadium stadium;
   final BookingsRepository bookingsRepository;
+  final int refreshVersion;
 
   @override
   Widget build(BuildContext context) {
@@ -251,11 +260,16 @@ class _ManagerStadiumDetails extends StatelessWidget {
                   Container(
                     width: 46,
                     height: 46,
+                    clipBehavior: Clip.antiAlias,
                     decoration: BoxDecoration(
                       color: Colors.white.withValues(alpha: .1),
                       borderRadius: BorderRadius.circular(14),
                     ),
-                    child: Icon(stadium.icon, color: Colors.white),
+                    child: StadiumImage(
+                      fileId: stadium.imageFileId,
+                      fallbackIcon: stadium.icon,
+                      iconSize: 24,
+                    ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -282,6 +296,7 @@ class _ManagerStadiumDetails extends StatelessWidget {
           managerId: managerId,
           stadium: stadium,
           bookingsRepository: bookingsRepository,
+          refreshVersion: refreshVersion,
         ),
       ],
     );
@@ -293,11 +308,13 @@ class _ManagerSchedulePanel extends StatefulWidget {
     required this.managerId,
     required this.stadium,
     required this.bookingsRepository,
+    required this.refreshVersion,
   });
 
   final String managerId;
   final Stadium stadium;
   final BookingsRepository bookingsRepository;
+  final int refreshVersion;
 
   @override
   State<_ManagerSchedulePanel> createState() => _ManagerSchedulePanelState();
@@ -327,7 +344,8 @@ class _ManagerSchedulePanelState extends State<_ManagerSchedulePanel> {
   void didUpdateWidget(_ManagerSchedulePanel oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.stadium.id != widget.stadium.id ||
-        oldWidget.bookingsRepository != widget.bookingsRepository) {
+        oldWidget.bookingsRepository != widget.bookingsRepository ||
+        oldWidget.refreshVersion != widget.refreshVersion) {
       _selectedDayIndex = 0;
       _bookedSlotsFuture = _loadBookedSlots();
     } else if (_selectedDayIndex >= widget.stadium.days.length) {
@@ -949,6 +967,9 @@ class _CreateManagerStadiumSheetState
   final _locationController = TextEditingController();
   final _priceController = TextEditingController(text: '80');
   bool _isSaving = false;
+  bool _isPickingImage = false;
+  Uint8List? _imageBytes;
+  String? _imageFilename;
 
   @override
   void dispose() {
@@ -983,6 +1004,18 @@ class _CreateManagerStadiumSheetState
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.w900,
                     ),
+                  ),
+                  const SizedBox(height: 14),
+                  _StadiumImagePicker(
+                    bytes: _imageBytes,
+                    isPicking: _isPickingImage,
+                    onPick: _pickImage,
+                    onRemove: _imageBytes == null
+                        ? null
+                        : () => setState(() {
+                            _imageBytes = null;
+                            _imageFilename = null;
+                          }),
                   ),
                   const SizedBox(height: 14),
                   _FormInput(
@@ -1039,6 +1072,48 @@ class _CreateManagerStadiumSheetState
     return null;
   }
 
+  Future<void> _pickImage() async {
+    setState(() => _isPickingImage = true);
+    try {
+      final image = await ImagePicker().pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1800,
+        maxHeight: 1200,
+        imageQuality: 88,
+      );
+      if (image == null || !mounted) return;
+
+      final bytes = await image.readAsBytes();
+      if (bytes.lengthInBytes > ManagerStadiumService.maximumImageSize) {
+        throw ArgumentError('Choose an image smaller than 5 MB.');
+      }
+      setState(() {
+        _imageBytes = bytes;
+        _imageFilename = image.name;
+      });
+    } on PlatformException catch (error) {
+      if (!mounted) return;
+      _showImageError(error.message ?? 'Could not open your photo library.');
+    } on ArgumentError catch (error) {
+      if (!mounted) return;
+      _showImageError(error.message?.toString() ?? 'Invalid image.');
+    } catch (_) {
+      if (!mounted) return;
+      _showImageError('Could not load that image.');
+    } finally {
+      if (mounted) setState(() => _isPickingImage = false);
+    }
+  }
+
+  void _showImageError(String message) {
+    showAppNotification(
+      context,
+      title: 'Image unavailable',
+      message: message,
+      type: AppNotificationType.error,
+    );
+  }
+
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -1049,6 +1124,8 @@ class _CreateManagerStadiumSheetState
           name: _nameController.text.trim(),
           location: _locationController.text.trim(),
           price: int.parse(_priceController.text.trim()),
+          imageBytes: _imageBytes,
+          imageFilename: _imageFilename,
         ),
       );
 
@@ -1077,6 +1154,120 @@ class _CreateManagerStadiumSheetState
         setState(() => _isSaving = false);
       }
     }
+  }
+}
+
+class _StadiumImagePicker extends StatelessWidget {
+  const _StadiumImagePicker({
+    required this.bytes,
+    required this.isPicking,
+    required this.onPick,
+    required this.onRemove,
+  });
+
+  final Uint8List? bytes;
+  final bool isPicking;
+  final VoidCallback onPick;
+  final VoidCallback? onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Stadium photo',
+          style: Theme.of(
+            context,
+          ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 8),
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: isPicking ? null : onPick,
+            borderRadius: BorderRadius.circular(20),
+            child: Ink(
+              height: 150,
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: colors.glassFill,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: colors.glassBorder),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(19),
+                child: bytes == null
+                    ? Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          if (isPicking)
+                            const CircularProgressIndicator(strokeWidth: 2.5)
+                          else
+                            const Icon(
+                              Icons.add_photo_alternate_rounded,
+                              size: 38,
+                            ),
+                          const SizedBox(height: 10),
+                          Text(
+                            isPicking
+                                ? 'Opening gallery...'
+                                : 'Choose a stadium photo',
+                            style: const TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Optional · JPG, PNG, or WebP · up to 5 MB',
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: .55),
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      )
+                    : Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          Image.memory(bytes!, fit: BoxFit.cover),
+                          DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  Colors.transparent,
+                                  Colors.black.withValues(alpha: .5),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const Positioned(
+                            left: 14,
+                            bottom: 12,
+                            child: Text(
+                              'Tap to choose another photo',
+                              style: TextStyle(fontWeight: FontWeight.w800),
+                            ),
+                          ),
+                          Positioned(
+                            right: 8,
+                            top: 8,
+                            child: IconButton.filledTonal(
+                              tooltip: 'Remove photo',
+                              onPressed: onRemove,
+                              icon: const Icon(Icons.close_rounded),
+                            ),
+                          ),
+                        ],
+                      ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }
 
@@ -1112,9 +1303,13 @@ class _StadiumFormValue {
     required this.name,
     required this.location,
     required this.price,
+    this.imageBytes,
+    this.imageFilename,
   });
 
   final String name;
   final String location;
   final int price;
+  final Uint8List? imageBytes;
+  final String? imageFilename;
 }

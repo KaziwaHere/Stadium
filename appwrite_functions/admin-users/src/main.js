@@ -402,6 +402,28 @@ async function getManagerRequest({ tables, callerId, requestId, res }) {
   return { request, data };
 }
 
+async function getBookingRequesterProfile({
+  users,
+  tables,
+  callerId,
+  body,
+  res,
+}) {
+  const requestId = String(body?.requestId ?? "").trim();
+  const loaded = await getManagerRequest({ tables, callerId, requestId, res });
+  if (!loaded?.request) return loaded;
+
+  const requester = await users.get(loaded.data.userId);
+  return res.json({
+    profile: {
+      id: requester.$id,
+      name: requester.name,
+      phone: requester.phone,
+      profilePictureId: requester.prefs?.profilePictureId ?? null,
+    },
+  });
+}
+
 async function acceptBookingRequest({ tables, callerId, body, res }) {
   const requestId = String(body?.requestId ?? "").trim();
   const loaded = await getManagerRequest({ tables, callerId, requestId, res });
@@ -713,6 +735,16 @@ export default async ({ req, res, log, error }) => {
       return cancelBookingRequest({ tables, callerId, body: parsedBody, res });
     }
 
+    if (action === "getBookingRequesterProfile") {
+      return getBookingRequesterProfile({
+        users,
+        tables,
+        callerId,
+        body: parsedBody,
+        res,
+      });
+    }
+
     const now = Date.now();
 
     const cachedAdmin = adminCache.get(callerId);
@@ -801,6 +833,7 @@ export default async ({ req, res, log, error }) => {
       id: user.$id,
       name: user.name,
       email: user.email,
+      profilePictureId: user.prefs?.profilePictureId ?? null,
       roles: user.labels ?? [],
       status: user.status,
     }));

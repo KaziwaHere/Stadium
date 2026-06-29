@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:appwrite/appwrite.dart';
 import 'package:appwrite/models.dart' as models;
 import 'package:flutter/material.dart';
@@ -5,6 +7,7 @@ import 'package:stadium/src/screens/contact_details_page.dart';
 import 'package:stadium/src/screens/stadium_booking_page.dart';
 import 'package:stadium/src/services/admin_service.dart';
 import 'package:stadium/src/services/manager_stadium_service.dart';
+import 'package:stadium/src/services/profile_picture_service.dart';
 import 'package:stadium/src/theme/app_theme.dart';
 import 'package:stadium/src/widgets/app_confirmation_dialog.dart';
 
@@ -778,14 +781,9 @@ class _AdminUserCard extends StatelessWidget {
           ),
           child: Row(
             children: [
-              Container(
-                width: 54,
-                height: 54,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(colors: gradient),
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: const Icon(Icons.person_rounded, color: Colors.white),
+              _AdminUserAvatar(
+                profilePictureId: user.profilePictureId,
+                gradient: gradient,
               ),
               const SizedBox(width: 14),
               Expanded(
@@ -842,6 +840,83 @@ class _AdminUserCard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _AdminUserAvatar extends StatefulWidget {
+  const _AdminUserAvatar({
+    required this.profilePictureId,
+    required this.gradient,
+  });
+
+  final String? profilePictureId;
+  final List<Color> gradient;
+
+  @override
+  State<_AdminUserAvatar> createState() => _AdminUserAvatarState();
+}
+
+class _AdminUserAvatarState extends State<_AdminUserAvatar> {
+  Future<Uint8List>? _preview;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPreview();
+  }
+
+  @override
+  void didUpdateWidget(covariant _AdminUserAvatar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.profilePictureId != widget.profilePictureId) {
+      _loadPreview();
+    }
+  }
+
+  void _loadPreview() {
+    final fileId = widget.profilePictureId;
+    _preview = fileId == null ? null : profilePictureService.preview(fileId);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 54,
+      height: 54,
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(colors: widget.gradient),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: _preview == null
+          ? const Icon(Icons.person_rounded, color: Colors.white)
+          : FutureBuilder<Uint8List>(
+              future: _preview,
+              builder: (context, snapshot) {
+                if (snapshot.hasData) {
+                  return Image.memory(
+                    snapshot.data!,
+                    fit: BoxFit.cover,
+                    gaplessPlayback: true,
+                  );
+                }
+
+                if (snapshot.hasError) {
+                  return const Icon(Icons.person_rounded, color: Colors.white);
+                }
+
+                return const Center(
+                  child: SizedBox.square(
+                    dimension: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  ),
+                );
+              },
+            ),
     );
   }
 }

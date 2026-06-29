@@ -10,6 +10,7 @@ import 'package:stadium/src/services/favorite_service.dart';
 import 'package:stadium/src/theme/app_theme.dart';
 import 'package:stadium/src/utils/stadium_schedule.dart';
 import 'package:stadium/src/widgets/app_notification.dart';
+import 'package:stadium/src/widgets/stadium_image.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class StadiumBookingPage extends StatefulWidget {
@@ -117,11 +118,10 @@ class _StadiumBookingPageState extends State<StadiumBookingPage> {
                     Expanded(
                       child: Text(
                         'Choose a day',
-                        style: Theme.of(context).textTheme.titleLarge
-                            ?.copyWith(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w900,
-                            ),
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                        ),
                       ),
                     ),
                     Text(
@@ -623,6 +623,7 @@ class _StadiumHero extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       child: Container(
         height: 220,
+        clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
@@ -633,15 +634,37 @@ class _StadiumHero extends StatelessWidget {
         ),
         child: Stack(
           children: [
-            Positioned(
-              right: -18,
-              bottom: -24,
-              child: Icon(
-                stadium.icon,
-                size: 168,
-                color: Colors.white.withValues(alpha: .13),
+            if (stadium.imageFileId != null) ...[
+              Positioned.fill(
+                child: StadiumImage(
+                  fileId: stadium.imageFileId,
+                  fallbackIcon: stadium.icon,
+                ),
               ),
-            ),
+              Positioned.fill(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.black.withValues(alpha: .08),
+                        Colors.black.withValues(alpha: .72),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ] else
+              Positioned(
+                right: -18,
+                bottom: -24,
+                child: Icon(
+                  stadium.icon,
+                  size: 168,
+                  color: Colors.white.withValues(alpha: .13),
+                ),
+              ),
             Positioned(
               left: 18,
               right: 18,

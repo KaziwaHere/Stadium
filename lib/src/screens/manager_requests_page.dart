@@ -1,16 +1,28 @@
+import 'dart:typed_data';
+
 import 'package:appwrite/appwrite.dart';
 import 'package:appwrite/models.dart' as models;
 import 'package:flutter/material.dart';
 import 'package:stadium/src/services/booking_service.dart';
+import 'package:stadium/src/services/booking_requester_profile_service.dart';
+import 'package:stadium/src/services/profile_picture_service.dart';
 import 'package:stadium/src/theme/app_theme.dart';
 import 'package:stadium/src/widgets/app_confirmation_dialog.dart';
 import 'package:stadium/src/widgets/app_notification.dart';
 
 class ManagerRequestsPage extends StatefulWidget {
-  const ManagerRequestsPage({super.key, required this.user, this.repository});
+  const ManagerRequestsPage({
+    super.key,
+    required this.user,
+    this.repository,
+    this.profileRepository,
+    this.onRequestsChanged,
+  });
 
   final models.User user;
   final ManagerBookingRequestsRepository? repository;
+  final BookingRequesterProfileRepository? profileRepository;
+  final VoidCallback? onRequestsChanged;
 
   @override
   State<ManagerRequestsPage> createState() => _ManagerRequestsPageState();
@@ -22,6 +34,8 @@ class _ManagerRequestsPageState extends State<ManagerRequestsPage> {
 
   ManagerBookingRequestsRepository get _repository =>
       widget.repository ?? managerBookingRequestsService;
+  BookingRequesterProfileRepository get _profileRepository =>
+      widget.profileRepository ?? bookingRequesterProfileService;
 
   Future<List<StadiumBooking>> _loadRequests() {
     return _repository.listPendingRequests(widget.user.$id);
@@ -127,6 +141,8 @@ class _ManagerRequestsPageState extends State<ManagerRequestsPage> {
                               ),
                               onAccept: () => _accept(requests[index]),
                               onDeny: () => _deny(requests[index]),
+                              onProfileTap: () =>
+                                  _openRequesterProfile(requests[index]),
                             ),
                           ),
                       ],
@@ -161,7 +177,21 @@ class _ManagerRequestsPageState extends State<ManagerRequestsPage> {
         builder: (context) => ManagerRequestHistoryPage(
           managerId: widget.user.$id,
           repository: _repository,
+          profileRepository: _profileRepository,
         ),
+      ),
+    );
+  }
+
+  void _openRequesterProfile(StadiumBooking request) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _RequesterProfileSheet(
+        managerId: widget.user.$id,
+        request: request,
+        repository: _profileRepository,
       ),
     );
   }
@@ -196,6 +226,7 @@ class _ManagerRequestsPageState extends State<ManagerRequestsPage> {
             '${request.stadiumName} ${request.dayLabel} at ${request.slotTime} is confirmed.',
         type: AppNotificationType.success,
       );
+      widget.onRequestsChanged?.call();
       _refresh();
     } on BookingSlotUnavailableException {
       if (!mounted) return;
@@ -206,6 +237,7 @@ class _ManagerRequestsPageState extends State<ManagerRequestsPage> {
         message: 'That slot is no longer available. The request was denied.',
         type: AppNotificationType.warning,
       );
+      widget.onRequestsChanged?.call();
       _refresh();
     } on AppwriteException catch (error) {
       if (!mounted) return;
@@ -276,6 +308,7 @@ class _ManagerRequestsPageState extends State<ManagerRequestsPage> {
         message: 'The booking request was denied.',
         type: AppNotificationType.success,
       );
+      widget.onRequestsChanged?.call();
       _refresh();
     } on AppwriteException catch (error) {
       if (!mounted) return;
@@ -323,12 +356,14 @@ class _RequestCard extends StatelessWidget {
     this.isProcessing = false,
     this.onAccept,
     this.onDeny,
+    this.onProfileTap,
   });
 
   final StadiumBooking request;
   final bool isProcessing;
   final VoidCallback? onAccept;
   final VoidCallback? onDeny;
+  final VoidCallback? onProfileTap;
 
   @override
   Widget build(BuildContext context) {
@@ -353,9 +388,52 @@ class _RequestCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 4),
-          Text(
-            'Requested by: ${request.userName}',
-            style: TextStyle(color: Colors.white.withValues(alpha: .7)),
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onProfileTap,
+              borderRadius: BorderRadius.circular(14),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 20,
+                      backgroundColor: colors.activeNavFill,
+                      child: const Icon(Icons.person_rounded, size: 22),
+                    ),
+                    const SizedBox(width: 11),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Requested by',
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: .5),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          Text(
+                            request.userName,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (onProfileTap != null)
+                      Icon(
+                        Icons.chevron_right_rounded,
+                        color: Colors.white.withValues(alpha: .5),
+                      ),
+                  ],
+                ),
+              ),
+            ),
           ),
           const SizedBox(height: 8),
           Text(
@@ -406,10 +484,12 @@ class ManagerRequestHistoryPage extends StatelessWidget {
     super.key,
     required this.managerId,
     required this.repository,
+    required this.profileRepository,
   });
 
   final String managerId;
   final ManagerBookingRequestsRepository repository;
+  final BookingRequesterProfileRepository profileRepository;
 
   @override
   Widget build(BuildContext context) {
@@ -507,7 +587,19 @@ class ManagerRequestHistoryPage extends StatelessWidget {
                           padding: EdgeInsets.only(
                             bottom: index == requests.length - 1 ? 0 : 12,
                           ),
-                          child: _RequestCard(request: requests[index]),
+                          child: _RequestCard(
+                            request: requests[index],
+                            onProfileTap: () => showModalBottomSheet<void>(
+                              context: context,
+                              isScrollControlled: true,
+                              backgroundColor: Colors.transparent,
+                              builder: (context) => _RequesterProfileSheet(
+                                managerId: managerId,
+                                request: requests[index],
+                                repository: profileRepository,
+                              ),
+                            ),
+                          ),
                         ),
                     ],
                   );
@@ -516,6 +608,268 @@ class ManagerRequestHistoryPage extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _RequesterProfileSheet extends StatefulWidget {
+  const _RequesterProfileSheet({
+    required this.managerId,
+    required this.request,
+    required this.repository,
+  });
+
+  final String managerId;
+  final StadiumBooking request;
+  final BookingRequesterProfileRepository repository;
+
+  @override
+  State<_RequesterProfileSheet> createState() => _RequesterProfileSheetState();
+}
+
+class _RequesterProfileSheetState extends State<_RequesterProfileSheet> {
+  late Future<BookingRequesterProfile> _profileFuture = _load();
+
+  Future<BookingRequesterProfile> _load() {
+    return widget.repository.getProfile(
+      managerId: widget.managerId,
+      requestId: widget.request.rowId,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+
+    return Material(
+      color: Theme.of(context).colorScheme.surface,
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+      clipBehavior: Clip.antiAlias,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+          child: FutureBuilder<BookingRequesterProfile>(
+            future: _profileFuture,
+            builder: (context, snapshot) {
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 42,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: .22),
+                        borderRadius: BorderRadius.circular(99),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Text(
+                    'Requester profile',
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  if (snapshot.connectionState != ConnectionState.done)
+                    const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(28),
+                        child: CircularProgressIndicator(),
+                      ),
+                    )
+                  else if (snapshot.hasError)
+                    Center(
+                      child: Column(
+                        children: [
+                          const Icon(Icons.error_outline_rounded, size: 36),
+                          const SizedBox(height: 10),
+                          const Text('Could not load this profile.'),
+                          const SizedBox(height: 12),
+                          OutlinedButton.icon(
+                            onPressed: () => setState(() {
+                              _profileFuture = _load();
+                            }),
+                            icon: const Icon(Icons.refresh_rounded),
+                            label: const Text('Retry'),
+                          ),
+                        ],
+                      ),
+                    )
+                  else
+                    _RequesterProfileContent(
+                      profile: snapshot.requireData,
+                      request: widget.request,
+                    ),
+                  const SizedBox(height: 18),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: colors.action,
+                        foregroundColor: colors.onAction,
+                      ),
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('Done'),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RequesterProfileContent extends StatelessWidget {
+  const _RequesterProfileContent({
+    required this.profile,
+    required this.request,
+  });
+
+  final BookingRequesterProfile profile;
+  final StadiumBooking request;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final displayName = profile.name.isEmpty ? request.userName : profile.name;
+
+    return Column(
+      children: [
+        _RequesterAvatar(profile: profile),
+        const SizedBox(height: 12),
+        Text(
+          displayName,
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 18),
+        _ProfileDetailRow(
+          icon: Icons.phone_rounded,
+          label: 'Phone number',
+          value: profile.phone.isEmpty ? 'Not provided' : profile.phone,
+        ),
+        const SizedBox(height: 10),
+        _ProfileDetailRow(
+          icon: Icons.event_rounded,
+          label: 'Requested time',
+          value: '${request.dayLabel} at ${request.slotTime}',
+        ),
+        const SizedBox(height: 10),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: colors.glassFill,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: colors.glassBorder),
+          ),
+          child: Text(
+            'Profile access is limited to users requesting your stadium.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: .56),
+              fontSize: 12,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _RequesterAvatar extends StatelessWidget {
+  const _RequesterAvatar({required this.profile});
+
+  final BookingRequesterProfile profile;
+
+  @override
+  Widget build(BuildContext context) {
+    final fileId = profile.profilePictureId;
+    final fallback = CircleAvatar(
+      radius: 42,
+      child: Text(
+        profile.name.trim().isEmpty
+            ? '?'
+            : profile.name.trim().substring(0, 1).toUpperCase(),
+        style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900),
+      ),
+    );
+    if (fileId == null) return fallback;
+
+    return FutureBuilder<Uint8List>(
+      future: profilePictureService.preview(fileId),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) return fallback;
+        return CircleAvatar(
+          radius: 42,
+          backgroundImage: MemoryImage(snapshot.data!),
+        );
+      },
+    );
+  }
+}
+
+class _ProfileDetailRow extends StatelessWidget {
+  const _ProfileDetailRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: colors.glassFill,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: colors.glassBorder),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: colors.mutedIcon),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: .5),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
