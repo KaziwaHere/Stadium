@@ -29,6 +29,24 @@ const usersCache = {
 
 const adminCache = new Map();
 
+async function listAllUsers(users) {
+  const result = [];
+  const limit = 100;
+  let offset = 0;
+
+  while (true) {
+    const page = await users.list([
+      Query.limit(limit),
+      Query.offset(offset),
+    ]);
+    result.push(...page.users);
+    if (page.users.length < limit) break;
+    offset += limit;
+  }
+
+  return result;
+}
+
 function tablesUrl(path) {
   return new URL(`${process.env.APPWRITE_ENDPOINT}/tablesdb${path}`);
 }
@@ -828,8 +846,8 @@ export default async ({ req, res, log, error }) => {
       return res.json({ users: usersCache.users });
     }
 
-    const result = await users.list();
-    const payloadUsers = result.users.map((user) => ({
+    const listedUsers = await listAllUsers(users);
+    const payloadUsers = listedUsers.map((user) => ({
       id: user.$id,
       name: user.name,
       email: user.email,

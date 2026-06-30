@@ -268,6 +268,28 @@ function Ensure-Index {
     Write-Host "Created index: $CollectionId.$Key"
 }
 
+function Ensure-TablesDbIndex {
+    param(
+        [string]$TableId,
+        [string]$Key,
+        [string[]]$Columns
+    )
+
+    $existing = Invoke-Appwrite -Method "GET" -Path "/tablesdb/$DatabaseId/tables/$TableId/indexes/$Key"
+    if ($existing) {
+        Write-Host "TablesDB index exists: $TableId.$Key"
+        return
+    }
+
+    Invoke-Appwrite -Method "POST" -Path "/tablesdb/$DatabaseId/tables/$TableId/indexes" -Body @{
+        key     = $Key
+        type    = "key"
+        columns = $Columns
+    } | Out-Null
+
+    Write-Host "Created TablesDB index: $TableId.$Key"
+}
+
 function Ensure-BookedSlotMarkersFromBookings {
     $created = 0
 
@@ -392,6 +414,14 @@ Ensure-Index -CollectionId "bookings" -Key "status_index" -Attributes @("status"
 Ensure-Index -CollectionId "bookings" -Key "stadium_slot_index" -Attributes @("stadiumId", "dayDate", "slotTime", "status")
 Ensure-Index -CollectionId "favorites" -Key "userId_index" -Attributes @("userId")
 Ensure-Index -CollectionId "favorites" -Key "stadiumId_index" -Attributes @("stadiumId")
+
+Ensure-TablesDbIndex -TableId "booked_slots" -Key "stadium_status_index" -Columns @("stadiumId", "status")
+Ensure-TablesDbIndex -TableId "booked_slots" -Key "slot_status_index" -Columns @("stadiumId", "dayDate", "slotTime", "status")
+Ensure-TablesDbIndex -TableId "bookings" -Key "user_status_date_index" -Columns @("userId", "status", "dayDate", "slotTime")
+Ensure-TablesDbIndex -TableId "bookings" -Key "stadium_status_date_index" -Columns @("stadiumId", "status", "dayDate", "slotTime")
+Ensure-TablesDbIndex -TableId "bookings" -Key "slot_status_index" -Columns @("slotId", "status")
+Ensure-TablesDbIndex -TableId "favorites" -Key "userId_index" -Columns @("userId")
+Ensure-TablesDbIndex -TableId "favorites" -Key "stadiumId_index" -Columns @("stadiumId")
 
 Ensure-BookedSlotMarkersFromBookings
 

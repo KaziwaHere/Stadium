@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:appwrite/appwrite.dart';
@@ -65,6 +66,16 @@ class BookingService implements BookingsRepository {
 
   @override
   Future<List<StadiumBooking>> listBookings(String userId) async {
+    final cached = _bookingsCache[userId];
+    if (cached != null) {
+      unawaited(_refreshBookingsInBackground(userId));
+      return List<StadiumBooking>.unmodifiable(cached.value);
+    }
+
+    return _refreshBookings(userId);
+  }
+
+  Future<List<StadiumBooking>> _refreshBookings(String userId) async {
     final existingRequest = _bookingsRequests[userId];
     if (existingRequest != null) return existingRequest;
 
@@ -72,11 +83,32 @@ class BookingService implements BookingsRepository {
     _bookingsRequests[userId] = request;
 
     try {
-      final bookings = await request;
+      final fetchedBookings = await request;
+      final optimisticBookings =
+          _bookingsCache[userId]?.value.where(
+            (booking) => booking.rowId.startsWith('local_'),
+          ) ??
+          const Iterable<StadiumBooking>.empty();
+      final bookings = [
+        ...fetchedBookings,
+        ...optimisticBookings.where(
+          (optimistic) => !fetchedBookings.any(
+            (fetched) => fetched.slotKey == optimistic.slotKey,
+          ),
+        ),
+      ]..sort(_compareBookings);
       _bookingsCache[userId] = _CacheEntry(bookings);
-      return bookings;
+      return List<StadiumBooking>.unmodifiable(bookings);
     } finally {
       _bookingsRequests.remove(userId);
+    }
+  }
+
+  Future<void> _refreshBookingsInBackground(String userId) async {
+    try {
+      await _refreshBookings(userId);
+    } catch (_) {
+      // Keep showing the last known data when a background refresh fails.
     }
   }
 
@@ -183,29 +215,55 @@ class BookingService implements BookingsRepository {
     }
 
     final slotId = _slotId(stadium.id, day.date, slot.time);
+    final optimisticBooking = StadiumBooking(
+      rowId: 'local_$slotId',
+      userId: userId,
+      userName: userName,
+      stadiumId: stadium.id,
+      slotId: slotId,
+      stadiumName: stadium.name,
+      location: stadium.location,
+      rating: stadium.rating,
+      price: stadium.price,
+      iconKey: stadium.iconKey,
+      imageFileId: stadium.imageFileId,
+      dayLabel: day.label,
+      dayDate: day.date,
+      slotTime: slot.time,
+      status: pendingStatus,
+      statusChangedAt: DateTime.now(),
+    );
+    _appendCachedBooking(userId, optimisticBooking);
+    _addCachedBookedSlot(stadium.id, optimisticBooking.slotKey);
 
-    final payload = await _executeBookingFunction({
-      'action': 'createBooking',
-      'userId': userId,
-      'userName': userName,
-      'stadiumId': stadium.id,
-      'slotId': slotId,
-      'stadiumName': stadium.name,
-      'location': stadium.location,
-      'rating': stadium.rating,
-      'price': stadium.price,
-      'icon': stadium.iconKey,
-      if (stadium.imageFileId != null) 'imageFileId': stadium.imageFileId,
-      'dayLabel': day.label,
-      'dayDate': day.date,
-      'slotTime': slot.time,
-    });
-    final booking = StadiumBooking.fromMap(_bookingPayload(payload));
-    _appendCachedBooking(userId, booking);
-    if (booking.status == activeStatus || booking.status == pendingStatus) {
-      _addCachedBookedSlot(stadium.id, booking.slotKey);
+    try {
+      final payload = await _executeBookingFunction({
+        'action': 'createBooking',
+        'userId': userId,
+        'userName': userName,
+        'stadiumId': stadium.id,
+        'slotId': slotId,
+        'stadiumName': stadium.name,
+        'location': stadium.location,
+        'rating': stadium.rating,
+        'price': stadium.price,
+        'icon': stadium.iconKey,
+        if (stadium.imageFileId != null) 'imageFileId': stadium.imageFileId,
+        'dayLabel': day.label,
+        'dayDate': day.date,
+        'slotTime': slot.time,
+      });
+      final booking = StadiumBooking.fromMap(_bookingPayload(payload));
+      _appendCachedBooking(userId, booking);
+      if (booking.status != activeStatus && booking.status != pendingStatus) {
+        _removeCachedBookedSlot(stadium.id, booking.slotKey);
+      }
+      return booking;
+    } catch (_) {
+      _removeCachedBooking(optimisticBooking);
+      _removeCachedBookedSlot(stadium.id, optimisticBooking.slotKey);
+      rethrow;
     }
-    return booking;
   }
 
   @override
@@ -289,11 +347,12 @@ class BookingService implements BookingsRepository {
 
   void _appendCachedBooking(String userId, StadiumBooking booking) {
     final cached = _bookingsCache[userId];
-    if (cached == null) return;
-
     final bookings = [
       booking,
-      ...cached.value.where((item) => item.rowId != booking.rowId),
+      ...?cached?.value.where(
+        (item) =>
+            item.rowId != booking.rowId && item.slotKey != booking.slotKey,
+      ),
     ]..sort(_compareBookings);
     _bookingsCache[userId] = _CacheEntry(bookings);
   }
@@ -309,9 +368,7 @@ class BookingService implements BookingsRepository {
 
   void _addCachedBookedSlot(String stadiumId, String slotKey) {
     final cached = _availabilityCache[stadiumId];
-    if (cached == null || cached.isExpired(_availabilityCacheTtl)) return;
-
-    _availabilityCache[stadiumId] = _CacheEntry({...cached.value, slotKey});
+    _availabilityCache[stadiumId] = _CacheEntry({...?cached?.value, slotKey});
   }
 
   void _removeCachedBookedSlot(String stadiumId, String slotKey) {

@@ -2,6 +2,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:stadium/src/utils/stadium_schedule.dart';
 
 void main() {
+  test('bookingMonthDayLabel omits the year', () {
+    expect(bookingMonthDayLabel('2026-06-30'), 'Jun 30');
+  });
+
   test('buildBookingDays creates a six-day local schedule', () {
     final days = buildBookingDays(now: DateTime(2026, 6, 24, 17, 0));
 

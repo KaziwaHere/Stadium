@@ -30,6 +30,14 @@ class _AdminPageState extends State<AdminPage> {
   bool get _isAdmin => widget.user.labels.contains('admin');
 
   @override
+  void initState() {
+    super.initState();
+    if (_isAdmin) {
+      _adminRepository.preloadUsers().catchError((_) {});
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
 

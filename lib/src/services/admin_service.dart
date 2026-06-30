@@ -35,13 +35,18 @@ class AdminService {
             _emitUsers(isRefreshing: true, isFromCache: true);
           }
 
-          refreshUsers(forceRefresh: forceRefresh || users == null);
+          refreshUsers(forceRefresh: true);
         })
         .catchError((Object error, StackTrace stackTrace) {
           _usersController.addError(error, stackTrace);
         });
 
     return _usersController.stream;
+  }
+
+  Future<void> preloadUsers() async {
+    await _ensureCachedUsersLoaded();
+    await refreshUsers(forceRefresh: true);
   }
 
   Future<List<AdminUser>> listUsers({bool forceRefresh = false}) async {
@@ -169,7 +174,15 @@ class AdminService {
   Future<void> _setUsersCache(List<AdminUser> users) async {
     _usersCache = List<AdminUser>.unmodifiable(users);
     _usersCacheTimestamp = DateTime.now();
+    unawaited(
+      _persistUsersCache(users, _usersCacheTimestamp!).catchError((_) {}),
+    );
+  }
 
+  Future<void> _persistUsersCache(
+    List<AdminUser> users,
+    DateTime timestamp,
+  ) async {
     final preferences = await SharedPreferences.getInstance();
     await preferences.setString(
       _usersCacheKey,
@@ -177,7 +190,7 @@ class AdminService {
     );
     await preferences.setInt(
       _usersCacheTimestampKey,
-      _usersCacheTimestamp!.millisecondsSinceEpoch,
+      timestamp.millisecondsSinceEpoch,
     );
   }
 

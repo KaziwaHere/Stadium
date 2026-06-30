@@ -463,7 +463,7 @@ class _ManagerSchedulePanelState extends State<_ManagerSchedulePanel> {
                       ),
                     ),
                     Text(
-                      '${_selectedDay.label}, ${_selectedDay.date}',
+                      '${_selectedDay.label}, ${bookingMonthDayLabel(_selectedDay.date)}',
                       style: TextStyle(
                         color: Colors.white.withValues(alpha: .58),
                         fontWeight: FontWeight.w700,
@@ -807,7 +807,7 @@ class _ManagerDayChip extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             Text(
-              day.date,
+              bookingMonthDayLabel(day.date),
               style: TextStyle(
                 color: Colors.white.withValues(alpha: .54),
                 fontSize: 12,

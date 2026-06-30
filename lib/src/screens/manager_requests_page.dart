@@ -7,6 +7,7 @@ import 'package:stadium/src/services/booking_service.dart';
 import 'package:stadium/src/services/booking_requester_profile_service.dart';
 import 'package:stadium/src/services/profile_picture_service.dart';
 import 'package:stadium/src/theme/app_theme.dart';
+import 'package:stadium/src/utils/stadium_schedule.dart';
 import 'package:stadium/src/widgets/app_confirmation_dialog.dart';
 import 'package:stadium/src/widgets/app_notification.dart';
 
@@ -437,7 +438,7 @@ class _RequestCard extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            '${request.dayLabel}, ${request.dayDate} at ${request.slotTime}',
+            '${request.dayLabel}, ${bookingMonthDayLabel(request.dayDate)} at ${request.slotTime}',
             style: TextStyle(
               color: Colors.white.withValues(alpha: .88),
               fontWeight: FontWeight.w700,

@@ -342,47 +342,46 @@ class _StadiumBookingPageState extends State<StadiumBookingPage> {
       return;
     }
 
-    setState(() => _isBooking = true);
+    final slotKey = _slotKey(day, slot);
+    setState(() {
+      _isBooking = true;
+      _bookedSlotKeys.add(slotKey);
+      _selectedSlot = null;
+    });
+
+    final bookingFuture = _bookingsRepository.createBooking(
+      userId: widget.user.$id,
+      userName: widget.user.name.trim().isEmpty
+          ? 'User ${widget.user.$id.substring(0, 8)}'
+          : widget.user.name,
+      stadium: widget.stadium,
+      day: day,
+      slot: slot,
+    );
+    widget.onBookingCreated?.call();
+
+    showAppNotification(
+      context,
+      title: 'Booking submitted',
+      message:
+          '${widget.stadium.name} is reserved ${_bookingDayDisplayLabel(day)} at ${slot.time}.',
+      type: AppNotificationType.success,
+    );
+
+    setState(() => _isBooking = false);
 
     try {
-      final booking = await _bookingsRepository.createBooking(
-        userId: widget.user.$id,
-        userName: widget.user.name.trim().isEmpty
-            ? 'User ${widget.user.$id.substring(0, 8)}'
-            : widget.user.name,
-        stadium: widget.stadium,
-        day: day,
-        slot: slot,
-      );
+      await bookingFuture;
 
       if (!mounted) return;
-
-      setState(() {
-        if (booking.status == BookingService.activeStatus ||
-            booking.status == BookingService.pendingStatus) {
-          _bookedSlotKeys.add(_slotKey(day, slot));
-        }
-        _selectedSlot = null;
-      });
       widget.onBookingCreated?.call();
-
-      showAppNotification(
-        context,
-        title: booking.status == BookingService.pendingStatus
-            ? 'Request sent'
-            : 'Stadium booked',
-        message: booking.status == BookingService.pendingStatus
-            ? 'Your booking request was sent. The manager will accept or deny it soon.'
-            : '${widget.stadium.name} is yours ${_bookingDayDisplayLabel(day)} at ${slot.time}.',
-        type: AppNotificationType.success,
-      );
     } on BookingSlotUnavailableException {
       if (!mounted) return;
 
       setState(() {
         _bookedSlotKeys.add(_slotKey(day, slot));
-        _selectedSlot = null;
       });
+      widget.onBookingCreated?.call();
 
       showAppNotification(
         context,
@@ -393,7 +392,8 @@ class _StadiumBookingPageState extends State<StadiumBookingPage> {
     } on BookingSlotExpiredException {
       if (!mounted) return;
 
-      setState(() => _selectedSlot = null);
+      setState(() => _bookedSlotKeys.remove(slotKey));
+      widget.onBookingCreated?.call();
 
       showAppNotification(
         context,
@@ -403,6 +403,9 @@ class _StadiumBookingPageState extends State<StadiumBookingPage> {
       );
     } catch (error, stackTrace) {
       if (!mounted) return;
+
+      setState(() => _bookedSlotKeys.remove(slotKey));
+      widget.onBookingCreated?.call();
 
       debugPrint('=== BOOKING ERROR ===');
       debugPrint('Error: $error');
