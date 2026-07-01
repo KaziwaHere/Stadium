@@ -12,6 +12,7 @@ class Stadium {
     required this.icon,
     required this.days,
     this.imageFileId,
+    this.isFeatured = false,
   });
 
   final String id;
@@ -24,6 +25,7 @@ class Stadium {
   final IconData icon;
   final List<BookingDay> days;
   final String? imageFileId;
+  final bool isFeatured;
 }
 
 IconData stadiumIconFromKey(String iconKey) {

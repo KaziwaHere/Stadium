@@ -89,6 +89,28 @@ String bookingMonthDayLabel(String value) {
   return '${months[date.month - 1]} ${date.day}';
 }
 
+String bookingDateLabel(String value, {DateTime? now}) {
+  final date = _parseDate(value);
+  if (date == null) return value;
+  final current = now ?? DateTime.now();
+  final today = DateTime(current.year, current.month, current.day);
+  final difference = date.difference(today).inDays;
+  if (difference == 0) return 'Today';
+  if (difference == 1) return 'Tomorrow';
+  if (difference == -1) return 'Yesterday';
+
+  const weekdays = [
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+    'Sunday',
+  ];
+  return '${weekdays[date.weekday - 1]}, ${bookingMonthDayLabel(value)}';
+}
+
 DateTime? _parseDate(String value) {
   final parts = value.split('-');
   if (parts.length != 3) return null;

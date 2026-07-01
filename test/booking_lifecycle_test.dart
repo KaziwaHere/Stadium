@@ -2,6 +2,17 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:stadium/src/services/booking_service.dart';
 
 void main() {
+  test('an active booking from yesterday moves to history', () {
+    final booking = _booking(
+      bookingDate: '2026-06-30',
+      statusChangedAt: DateTime(2026, 6, 29),
+    );
+    final today = DateTime(2026, 7, 1, 8);
+
+    expect(booking.belongsInCurrentBookings(now: today), isFalse);
+    expect(booking.belongsInHistory(now: today), isTrue);
+  });
+
   test('cancelled booking remains current on cancellation day', () {
     final booking = _booking(
       bookingDate: '2027-01-15',

@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:appwrite/models.dart' as models;
+import 'package:geocoding/geocoding.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:stadium/src/models/stadium.dart';
 import 'package:stadium/src/screens/stadium_booking_page.dart';
 import 'package:stadium/src/services/booking_service.dart';
@@ -49,6 +52,10 @@ class _StadiumHomePageState extends State<StadiumHomePage> {
   var _hasMoreStadiums = true;
   var _isLoadingMoreStadiums = false;
   Object? _loadMoreError;
+  String _userCity = 'Finding your city…';
+  bool _isLocating = false;
+  StreamSubscription<void>? _stadiumsSubscription;
+  Timer? _stadiumsReloadDebounce;
 
   FavoritesRepository get _favoritesRepository =>
       widget.favoritesRepository ?? favoriteService;
@@ -60,6 +67,16 @@ class _StadiumHomePageState extends State<StadiumHomePage> {
     _refreshFavoriteIds();
     _scrollController.addListener(_handleScroll);
     widget.favoritesVersion?.addListener(_handleFavoritesChanged);
+    final stadiumRepository = managerStadiumService;
+    if (stadiumRepository is RealtimeManagerStadiumRepository) {
+      _stadiumsSubscription =
+          (stadiumRepository as RealtimeManagerStadiumRepository)
+              .watchPublicStadiums()
+              .listen((_) => _scheduleStadiumReload());
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _loadUserCity(explainPermission: true);
+    });
   }
 
   Future<List<Stadium>> _loadStadiums() async {
@@ -97,6 +114,8 @@ class _StadiumHomePageState extends State<StadiumHomePage> {
     _scrollController.dispose();
     _searchController.dispose();
     widget.favoritesVersion?.removeListener(_handleFavoritesChanged);
+    _stadiumsSubscription?.cancel();
+    _stadiumsReloadDebounce?.cancel();
     super.dispose();
   }
 
@@ -104,6 +123,16 @@ class _StadiumHomePageState extends State<StadiumHomePage> {
     final ids = await _favoritesRepository.favoriteStadiumIds(widget.user.$id);
     _favoriteIds = ids;
     return ids;
+  }
+
+  void _scheduleStadiumReload() {
+    _stadiumsReloadDebounce?.cancel();
+    _stadiumsReloadDebounce = Timer(const Duration(milliseconds: 300), () {
+      if (!mounted) return;
+      setState(() {
+        _stadiumsFuture = _loadStadiums();
+      });
+    });
   }
 
   void _handleFavoritesChanged() {
@@ -150,7 +179,14 @@ class _StadiumHomePageState extends State<StadiumHomePage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const _TopBar(),
+                              _TopBar(
+                                city: _userCity,
+                                isLoading: _isLocating,
+                                onLocationTap: () => _loadUserCity(
+                                  explainPermission: true,
+                                  openSettingsWhenBlocked: true,
+                                ),
+                              ),
                               const SizedBox(height: 24),
                               const SizedBox(height: 10),
                               const SizedBox(height: 22),
@@ -257,6 +293,108 @@ class _StadiumHomePageState extends State<StadiumHomePage> {
   }
 
   bool _isHearted(Stadium stadium) => _favoriteIds.contains(stadium.id);
+
+  Future<void> _loadUserCity({
+    bool explainPermission = false,
+    bool openSettingsWhenBlocked = false,
+  }) async {
+    if (_isLocating) return;
+    if (mounted) setState(() => _isLocating = true);
+
+    try {
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        if (explainPermission) {
+          final shouldContinue = await _showLocationPermissionDialog();
+          if (!shouldContinue) {
+            _setLocationLabel('Location permission needed');
+            return;
+          }
+        }
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied) {
+        _setLocationLabel('Location denied');
+        return;
+      }
+      if (permission == LocationPermission.deniedForever) {
+        _setLocationLabel('Enable location');
+        if (openSettingsWhenBlocked) await Geolocator.openAppSettings();
+        return;
+      }
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        _setLocationLabel('Location is off');
+        if (openSettingsWhenBlocked) await Geolocator.openLocationSettings();
+        return;
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.medium,
+          timeLimit: Duration(seconds: 15),
+        ),
+      );
+      _setLocationLabel(await _cityForPosition(position));
+    } catch (_) {
+      _setLocationLabel('Location unavailable');
+    } finally {
+      if (mounted) setState(() => _isLocating = false);
+    }
+  }
+
+  Future<String> _cityForPosition(Position position) async {
+    try {
+      final placemarks = await placemarkFromCoordinates(
+        position.latitude,
+        position.longitude,
+      );
+      final place = placemarks.firstOrNull;
+      return [
+            place?.locality,
+            place?.subAdministrativeArea,
+            place?.administrativeArea,
+            place?.country,
+          ]
+          .whereType<String>()
+          .map((value) => value.trim())
+          .firstWhere(
+            (value) => value.isNotEmpty,
+            orElse: () => 'Current location',
+          );
+    } catch (_) {
+      return 'Current location';
+    }
+  }
+
+  Future<bool> _showLocationPermissionDialog() async {
+    if (!mounted) return false;
+    return await showDialog<bool>(
+          context: context,
+          barrierDismissible: false,
+          builder: (dialogContext) => AlertDialog(
+            icon: const Icon(Icons.location_on_rounded),
+            title: const Text('Use your location?'),
+            content: const Text(
+              'Stadium uses your location only to show your current city and nearby stadiums.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: const Text('Not now'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: const Text('Allow location'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
+  void _setLocationLabel(String label) {
+    if (mounted) setState(() => _userCity = label);
+  }
 
   bool _isUpdating(Stadium stadium) =>
       _updatingFavoriteIds.contains(stadium.id);
@@ -483,7 +621,15 @@ class _Glow extends StatelessWidget {
 }
 
 class _TopBar extends StatelessWidget {
-  const _TopBar();
+  const _TopBar({
+    required this.city,
+    required this.isLoading,
+    required this.onLocationTap,
+  });
+
+  final String city;
+  final bool isLoading;
+  final VoidCallback onLocationTap;
 
   @override
   Widget build(BuildContext context) {
@@ -492,47 +638,59 @@ class _TopBar extends StatelessWidget {
     return Row(
       children: [
         Expanded(
-          child: Text.rich(
-            TextSpan(
-              children: [
+          child: InkWell(
+            onTap: onLocationTap,
+            borderRadius: BorderRadius.circular(12),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Text.rich(
                 TextSpan(
-                  text: 'Stadium',
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    color: Colors.white,
-                    fontFamily: 'Roboto',
-                    fontWeight: FontWeight.w900,
-                    height: 1,
-                  ),
-                ),
-                WidgetSpan(
-                  alignment: PlaceholderAlignment.middle,
-                  child: Container(
-                    width: 7,
-                    height: 7,
-                    margin: const EdgeInsets.symmetric(horizontal: 10),
-                    decoration: BoxDecoration(
-                      color: colors.action,
-                      shape: BoxShape.circle,
+                  children: [
+                    TextSpan(
+                      text: 'Stadium',
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(
+                            color: Colors.white,
+                            fontFamily: 'Roboto',
+                            fontWeight: FontWeight.w900,
+                            height: 1,
+                          ),
                     ),
-                  ),
+                    WidgetSpan(
+                      alignment: PlaceholderAlignment.middle,
+                      child: Container(
+                        width: 7,
+                        height: 7,
+                        margin: const EdgeInsets.symmetric(horizontal: 10),
+                        decoration: BoxDecoration(
+                          color: colors.action,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                    TextSpan(
+                      text: city,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: Colors.white.withValues(alpha: .72),
+                        fontFamily: 'Roboto',
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        height: 1,
+                      ),
+                    ),
+                  ],
                 ),
-                TextSpan(
-                  text: 'Baghdad',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: Colors.white.withValues(alpha: .72),
-                    fontFamily: 'Roboto',
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    height: 1,
-                  ),
-                ),
-              ],
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
           ),
         ),
-        const _GlassIconButton(icon: Icons.notifications_rounded),
+        if (isLoading)
+          const SizedBox.square(
+            dimension: 18,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
       ],
     );
   }
@@ -1218,25 +1376,6 @@ class _PriceBadge extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _GlassIconButton extends StatelessWidget {
-  const _GlassIconButton({required this.icon});
-
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return GlassContainer(
-      borderRadius: 16,
-      padding: EdgeInsets.zero,
-      child: SizedBox(
-        width: 46,
-        height: 46,
-        child: Icon(icon, color: Colors.white.withValues(alpha: .86), size: 22),
       ),
     );
   }

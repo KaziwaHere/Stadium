@@ -6,6 +6,13 @@ void main() {
     expect(bookingMonthDayLabel('2026-06-30'), 'Jun 30');
   });
 
+  test('bookingDateLabel derives relative labels from the stored date', () {
+    final now = DateTime(2026, 7, 1, 12);
+    expect(bookingDateLabel('2026-06-30', now: now), 'Yesterday');
+    expect(bookingDateLabel('2026-07-01', now: now), 'Today');
+    expect(bookingDateLabel('2026-07-02', now: now), 'Tomorrow');
+  });
+
   test('buildBookingDays creates a six-day local schedule', () {
     final days = buildBookingDays(now: DateTime(2026, 6, 24, 17, 0));
 

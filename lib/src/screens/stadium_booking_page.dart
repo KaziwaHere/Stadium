@@ -49,6 +49,7 @@ class _StadiumBookingPageState extends State<StadiumBookingPage> {
   bool _isUpdatingFavorite = false;
   late DateTime _now = DateTime.now();
   Timer? _clockTimer;
+  StreamSubscription<void>? _availabilitySubscription;
 
   BookingsRepository get _bookingsRepository =>
       widget.bookingsRepository ?? bookingService;
@@ -67,11 +68,18 @@ class _StadiumBookingPageState extends State<StadiumBookingPage> {
     super.initState();
     _startClock();
     _loadBookedSlots();
+    final repository = _bookingsRepository;
+    if (repository is RealtimeBookingsRepository) {
+      _availabilitySubscription = (repository as RealtimeBookingsRepository)
+          .watchBookedSlots(widget.stadium.id)
+          .listen((_) => _loadBookedSlots(showLoading: false));
+    }
   }
 
   @override
   void dispose() {
     _clockTimer?.cancel();
+    _availabilitySubscription?.cancel();
     super.dispose();
   }
 
@@ -286,8 +294,8 @@ class _StadiumBookingPageState extends State<StadiumBookingPage> {
     );
   }
 
-  Future<void> _loadBookedSlots() async {
-    setState(() => _isLoadingBookedSlots = true);
+  Future<void> _loadBookedSlots({bool showLoading = true}) async {
+    if (showLoading) setState(() => _isLoadingBookedSlots = true);
 
     try {
       final bookedSlotKeys = await _bookingsRepository.bookedSlotKeys(
@@ -320,7 +328,7 @@ class _StadiumBookingPageState extends State<StadiumBookingPage> {
         type: AppNotificationType.error,
       );
     } finally {
-      if (mounted) {
+      if (mounted && showLoading) {
         setState(() => _isLoadingBookedSlots = false);
       }
     }

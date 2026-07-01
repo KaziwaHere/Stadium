@@ -4,6 +4,7 @@ import 'package:appwrite/appwrite.dart';
 import 'package:appwrite/models.dart' as models;
 import 'package:flutter/material.dart';
 import 'package:stadium/src/screens/contact_details_page.dart';
+import 'package:stadium/src/screens/admin_stadiums_page.dart';
 import 'package:stadium/src/screens/stadium_booking_page.dart';
 import 'package:stadium/src/services/admin_service.dart';
 import 'package:stadium/src/services/manager_stadium_service.dart';
@@ -117,6 +118,13 @@ class _AdminPageState extends State<AdminPage> {
                 ),
                 const SizedBox(height: 12),
                 _AdminActionCard(
+                  icon: Icons.stadium_rounded,
+                  title: 'Stadium bookings',
+                  subtitle: 'View stadium usage and approved bookings',
+                  onTap: _openStadiumBookings,
+                ),
+                const SizedBox(height: 12),
+                _AdminActionCard(
                   icon: Icons.contact_phone_rounded,
                   title: 'Contact details',
                   subtitle: 'Update admin email and phone',
@@ -150,6 +158,15 @@ class _AdminPageState extends State<AdminPage> {
   void _openContactDetails() {
     Navigator.of(context).push(
       MaterialPageRoute(builder: (context) => const AdminContactDetailsPage()),
+    );
+  }
+
+  void _openStadiumBookings() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) =>
+            AdminStadiumsPage(adminRepository: _adminRepository),
+      ),
     );
   }
 

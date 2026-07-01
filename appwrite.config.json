@@ -55,8 +55,17 @@
             "buildSpecification": "s-2vcpu-2gb",
             "runtimeSpecification": "s-0.5vcpu-512mb",
             "deploymentRetention": 7,
-            "execute": ["users"],
-            "scopes": ["users.read", "users.write", "databases.read", "databases.write", "rows.read", "rows.write"],
+            "execute": [
+                "users"
+            ],
+            "scopes": [
+                "users.read",
+                "users.write",
+                "databases.read",
+                "databases.write",
+                "rows.read",
+                "rows.write"
+            ],
             "events": [],
             "schedule": "",
             "timeout": 15,
@@ -147,9 +156,28 @@
                     "size": 36,
                     "default": null,
                     "encrypt": false
+                },
+                {
+                    "key": "isFeatured",
+                    "type": "boolean",
+                    "required": false,
+                    "array": false,
+                    "default": false
                 }
             ],
-            "indexes": []
+            "indexes": [
+                {
+                    "key": "featured_index",
+                    "type": "key",
+                    "status": "available",
+                    "columns": [
+                        "isFeatured"
+                    ],
+                    "orders": [
+                        "DESC"
+                    ]
+                }
+            ]
         },
         {
             "$id": "slots",

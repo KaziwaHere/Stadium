@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:appwrite/models.dart' as models;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -42,6 +44,8 @@ class _BookingsPageState extends State<BookingsPage> {
   late Future<List<FavoriteStadium>> _favoritesFuture;
   bool _ignoreNextBookingsChange = false;
   bool _ignoreNextFavoritesChange = false;
+  StreamSubscription<void>? _bookingsSubscription;
+  Timer? _clockTimer;
 
   BookingsRepository get _bookingsRepository =>
       widget.bookingsRepository ?? bookingService;
@@ -56,6 +60,16 @@ class _BookingsPageState extends State<BookingsPage> {
     _favoritesFuture = _loadFavorites();
     widget.bookingsVersion?.addListener(_handleBookingsChanged);
     widget.favoritesVersion?.addListener(_handleFavoritesChanged);
+    final repository = _bookingsRepository;
+    if (repository is RealtimeBookingsRepository) {
+      _bookingsSubscription = (repository as RealtimeBookingsRepository)
+          .watchBookings(widget.user.$id)
+          .listen((_) => _refreshBookings());
+    }
+    _clockTimer = Timer.periodic(
+      const Duration(minutes: 1),
+      (_) => _refreshBookings(),
+    );
   }
 
   @override
@@ -76,6 +90,8 @@ class _BookingsPageState extends State<BookingsPage> {
   void dispose() {
     widget.bookingsVersion?.removeListener(_handleBookingsChanged);
     widget.favoritesVersion?.removeListener(_handleFavoritesChanged);
+    _bookingsSubscription?.cancel();
+    _clockTimer?.cancel();
     super.dispose();
   }
 
@@ -584,7 +600,7 @@ class _ActiveBookingCard extends StatelessWidget {
   }
 }
 
-class BookingHistoryPage extends StatelessWidget {
+class BookingHistoryPage extends StatefulWidget {
   const BookingHistoryPage({
     super.key,
     required this.user,
@@ -593,6 +609,41 @@ class BookingHistoryPage extends StatelessWidget {
 
   final models.User user;
   final BookingsRepository bookingsRepository;
+
+  @override
+  State<BookingHistoryPage> createState() => _BookingHistoryPageState();
+}
+
+class _BookingHistoryPageState extends State<BookingHistoryPage> {
+  late Future<List<StadiumBooking>> _historyFuture;
+  StreamSubscription<void>? _subscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _historyFuture = _load();
+    final repository = widget.bookingsRepository;
+    if (repository is RealtimeBookingsRepository) {
+      _subscription = (repository as RealtimeBookingsRepository)
+          .watchBookings(widget.user.$id)
+          .listen((_) {
+            if (mounted) {
+              setState(() {
+                _historyFuture = _load();
+              });
+            }
+          });
+    }
+  }
+
+  Future<List<StadiumBooking>> _load() =>
+      widget.bookingsRepository.listBookingHistory(widget.user.$id);
+
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -649,7 +700,7 @@ class BookingHistoryPage extends StatelessWidget {
               ),
               const SizedBox(height: 24),
               FutureBuilder<List<StadiumBooking>>(
-                future: bookingsRepository.listBookingHistory(user.$id),
+                future: _historyFuture,
                 builder: (context, snapshot) {
                   if (snapshot.connectionState != ConnectionState.done &&
                       !snapshot.hasData) {
@@ -772,9 +823,7 @@ class _BookingDetails extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dateLabel = booking.dayLabel == 'Today'
-        ? 'Today'
-        : '${booking.dayLabel}, ${booking.dayDate}';
+    final dateLabel = bookingDateLabel(booking.dayDate);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

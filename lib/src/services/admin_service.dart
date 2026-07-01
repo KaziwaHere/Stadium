@@ -63,6 +63,59 @@ class AdminService {
     return refreshUsers(forceRefresh: forceRefresh);
   }
 
+  Future<List<AdminStadiumBookingStats>> listStadiumBookingStats() async {
+    final user = await _account.get();
+    final execution = await _functions.createExecution(
+      functionId: functionId,
+      body: jsonEncode({
+        'action': 'listStadiumBookingStats',
+        'userId': user.$id,
+      }),
+      xasync: false,
+    );
+
+    if (execution.responseStatusCode < 200 ||
+        execution.responseStatusCode >= 300) {
+      throw AdminServiceException(
+        execution.responseBody.isEmpty
+            ? 'Could not load stadium statistics.'
+            : execution.responseBody,
+      );
+    }
+
+    final decoded = jsonDecode(execution.responseBody);
+    if (decoded is! Map<String, dynamic> || decoded['stadiums'] is! List) {
+      throw const AdminServiceException('Invalid stadium statistics response.');
+    }
+
+    return (decoded['stadiums'] as List)
+        .whereType<Map<String, dynamic>>()
+        .map(AdminStadiumBookingStats.fromMap)
+        .toList();
+  }
+
+  Future<void> setFeaturedStadium(String stadiumId) async {
+    final user = await _account.get();
+    final execution = await _functions.createExecution(
+      functionId: functionId,
+      body: jsonEncode({
+        'action': 'setFeaturedStadium',
+        'userId': user.$id,
+        'stadiumId': stadiumId,
+      }),
+      xasync: false,
+    );
+    if (execution.responseStatusCode < 200 ||
+        execution.responseStatusCode >= 300) {
+      final details = execution.responseBody.trim().isNotEmpty
+          ? execution.responseBody
+          : execution.errors.trim();
+      throw AdminServiceException(
+        details.isEmpty ? 'Could not update the featured stadium.' : details,
+      );
+    }
+  }
+
   Future<List<AdminUser>> refreshUsers({bool forceRefresh = true}) async {
     await _ensureCachedUsersLoaded();
 
@@ -375,6 +428,186 @@ class AdminUser {
 
   String get displayName => name.trim().isEmpty ? 'Unnamed user' : name;
   String get displayRoles => roles.isEmpty ? 'user' : roles.join(', ');
+}
+
+class AdminStadiumBookingStats {
+  const AdminStadiumBookingStats({
+    required this.id,
+    required this.name,
+    required this.location,
+    required this.price,
+    required this.isFeatured,
+    required this.bookings,
+  });
+
+  factory AdminStadiumBookingStats.fromMap(Map<String, dynamic> map) {
+    final rawBookings = map['bookings'];
+    return AdminStadiumBookingStats(
+      id: (map['id'] ?? '').toString(),
+      name: (map['name'] ?? 'Unnamed stadium').toString(),
+      location: (map['location'] ?? '').toString(),
+      price: (map['price'] as num?)?.toInt() ?? 0,
+      isFeatured: map['isFeatured'] == true,
+      bookings: rawBookings is List
+          ? rawBookings
+                .whereType<Map<String, dynamic>>()
+                .map(AdminStadiumBookingEntry.fromMap)
+                .toList()
+          : const [],
+    );
+  }
+
+  final String id;
+  final String name;
+  final String location;
+  final int price;
+  final bool isFeatured;
+  final List<AdminStadiumBookingEntry> bookings;
+
+  int get bookingCount => bookings.length;
+
+  AdminStadiumBookingStats withFeatured(bool value) {
+    return AdminStadiumBookingStats(
+      id: id,
+      name: name,
+      location: location,
+      price: price,
+      isFeatured: value,
+      bookings: bookings,
+    );
+  }
+
+  AdminWeeklyStadiumReport weeklyReport({DateTime? now}) {
+    final current = now ?? DateTime.now();
+    final start = _startOfWeek(current);
+    final end = start.add(const Duration(days: 7));
+    final weekly = bookings.where((booking) {
+      final startTime = booking.startsAt;
+      return startTime != null &&
+          !startTime.isBefore(start) &&
+          startTime.isBefore(end);
+    }).toList();
+    final completed = weekly
+        .where((booking) => booking.isCompleted(now: current))
+        .toList();
+    final gross = completed.fold<double>(
+      0,
+      (total, booking) => total + booking.effectivePrice(price),
+    );
+
+    return AdminWeeklyStadiumReport(
+      stadiumId: id,
+      stadiumName: name,
+      weekStart: start,
+      approvedBookings: weekly.length,
+      completedBookings: completed.length,
+      upcomingBookings: weekly.length - completed.length,
+      uniqueCustomers: weekly.map((booking) => booking.userId).toSet().length,
+      grossRevenue: gross,
+      adminCommission: gross * .03,
+    );
+  }
+}
+
+class AdminStadiumBookingEntry {
+  const AdminStadiumBookingEntry({
+    required this.id,
+    required this.userId,
+    required this.userName,
+    required this.dayDate,
+    required this.slotTime,
+    required this.price,
+  });
+
+  factory AdminStadiumBookingEntry.fromMap(Map<String, dynamic> map) {
+    return AdminStadiumBookingEntry(
+      id: (map['id'] ?? '').toString(),
+      userId: (map['userId'] ?? '').toString(),
+      userName: (map['userName'] ?? 'Unknown user').toString(),
+      dayDate: (map['dayDate'] ?? '').toString(),
+      slotTime: (map['slotTime'] ?? '').toString(),
+      price: (map['price'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  final String id;
+  final String userId;
+  final String userName;
+  final String dayDate;
+  final String slotTime;
+  final int price;
+
+  DateTime? get startsAt {
+    final date = DateTime.tryParse(dayDate);
+    final minutes = _parseAdminBookingTime(slotTime);
+    if (date == null || minutes == null) return null;
+    final slotDate = minutes < 16 * 60
+        ? date.add(const Duration(days: 1))
+        : date;
+    return DateTime(
+      slotDate.year,
+      slotDate.month,
+      slotDate.day,
+      minutes ~/ 60,
+      minutes % 60,
+    );
+  }
+
+  bool isCompleted({DateTime? now}) {
+    final start = startsAt;
+    return start != null &&
+        !start.add(const Duration(hours: 1)).isAfter(now ?? DateTime.now());
+  }
+
+  int effectivePrice(int stadiumPrice) => price > 0 ? price : stadiumPrice;
+}
+
+class AdminWeeklyStadiumReport {
+  const AdminWeeklyStadiumReport({
+    required this.stadiumId,
+    required this.stadiumName,
+    required this.weekStart,
+    required this.approvedBookings,
+    required this.completedBookings,
+    required this.upcomingBookings,
+    required this.uniqueCustomers,
+    required this.grossRevenue,
+    required this.adminCommission,
+  });
+
+  static const weeklySlotCapacity = 63;
+  final String stadiumId;
+  final String stadiumName;
+  final DateTime weekStart;
+  final int approvedBookings;
+  final int completedBookings;
+  final int upcomingBookings;
+  final int uniqueCustomers;
+  final double grossRevenue;
+  final double adminCommission;
+
+  double get activityRate =>
+      (approvedBookings / weeklySlotCapacity * 100).clamp(0, 100).toDouble();
+}
+
+DateTime _startOfWeek(DateTime value) {
+  final date = DateTime(value.year, value.month, value.day);
+  return date.subtract(Duration(days: date.weekday - DateTime.monday));
+}
+
+int? _parseAdminBookingTime(String value) {
+  final match = RegExp(
+    r'^(\d{1,2}):(\d{2})\s*(AM|PM)$',
+    caseSensitive: false,
+  ).firstMatch(value.trim());
+  if (match == null) return null;
+  var hour = int.tryParse(match.group(1)!);
+  final minute = int.tryParse(match.group(2)!);
+  if (hour == null || minute == null || hour < 1 || hour > 12) return null;
+  final period = match.group(3)!.toUpperCase();
+  if (period == 'AM' && hour == 12) hour = 0;
+  if (period == 'PM' && hour != 12) hour += 12;
+  return hour * 60 + minute;
 }
 
 String? _optionalString(Object? value) {

@@ -4,6 +4,8 @@
 <dict>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Choose a photo to use as your Stadium profile picture.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Stadium uses your location to show your current city and nearby stadiums.</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>

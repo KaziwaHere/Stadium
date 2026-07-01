@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:appwrite/appwrite.dart';
@@ -21,8 +22,13 @@ abstract class ManagerStadiumRepository {
   Future<List<Stadium>> listPublicStadiums({int limit = 20, int offset = 0});
 }
 
-class ManagerStadiumService implements ManagerStadiumRepository {
-  ManagerStadiumService(this._tables, this._storage);
+abstract class RealtimeManagerStadiumRepository {
+  Stream<void> watchPublicStadiums();
+}
+
+class ManagerStadiumService
+    implements ManagerStadiumRepository, RealtimeManagerStadiumRepository {
+  ManagerStadiumService(this._tables, this._storage, this._realtime);
 
   static const databaseId = 'stadium_booking';
   static const tableId = 'stadiums';
@@ -33,6 +39,26 @@ class ManagerStadiumService implements ManagerStadiumRepository {
 
   final TablesDB _tables;
   final Storage _storage;
+  final Realtime _realtime;
+
+  @override
+  Stream<void> watchPublicStadiums() {
+    late final RealtimeSubscription subscription;
+    late final StreamController<void> controller;
+    controller = StreamController<void>(
+      onListen: () {
+        subscription = _realtime.subscribe([
+          Channel.tablesdb(databaseId).table(tableId).row(),
+        ]);
+        subscription.stream.listen(
+          (_) => controller.add(null),
+          onError: controller.addError,
+        );
+      },
+      onCancel: () => subscription.close(),
+    );
+    return controller.stream;
+  }
 
   @override
   Future<Stadium?> managerStadium(String managerId) async {
@@ -139,11 +165,26 @@ class ManagerStadiumService implements ManagerStadiumRepository {
     int offset = 0,
   }) async {
     try {
-      final rows = await _tables.listRows(
-        databaseId: databaseId,
-        tableId: tableId,
-        queries: [Query.limit(limit), Query.offset(offset)],
-      );
+      models.RowList rows;
+      try {
+        rows = await _tables.listRows(
+          databaseId: databaseId,
+          tableId: tableId,
+          queries: [
+            Query.orderDesc('isFeatured'),
+            Query.limit(limit),
+            Query.offset(offset),
+          ],
+        );
+      } on AppwriteException catch (error) {
+        if (error.code != 400 && error.code != 404) rethrow;
+        // Keep older deployments usable until the featured column is pushed.
+        rows = await _tables.listRows(
+          databaseId: databaseId,
+          tableId: tableId,
+          queries: [Query.limit(limit), Query.offset(offset)],
+        );
+      }
 
       return rows.rows.map(_stadiumFromRow).toList();
     } on AppwriteException catch (error) {
@@ -166,6 +207,7 @@ class ManagerStadiumService implements ManagerStadiumRepository {
       icon: stadiumIconFromKey(data['icon']?.toString() ?? 'stadium'),
       days: buildBookingDays(),
       imageFileId: _optionalString(data['imageFileId']),
+      isFeatured: data['isFeatured'] == true,
     );
   }
 
@@ -178,4 +220,5 @@ class ManagerStadiumService implements ManagerStadiumRepository {
 final ManagerStadiumRepository managerStadiumService = ManagerStadiumService(
   TablesDB(client),
   Storage(client),
+  Realtime(client),
 );

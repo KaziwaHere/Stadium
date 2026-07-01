@@ -44,8 +44,14 @@ abstract class BookingsRepository {
   Future<void> cancelBooking({required StadiumBooking booking});
 }
 
-class BookingService implements BookingsRepository {
-  BookingService(this._tables, this._functions);
+abstract class RealtimeBookingsRepository {
+  Stream<void> watchBookings(String userId);
+
+  Stream<void> watchBookedSlots(String stadiumId);
+}
+
+class BookingService implements BookingsRepository, RealtimeBookingsRepository {
+  BookingService(this._tables, this._functions, [this._realtime]);
 
   static const functionId = 'admin-users';
   static const databaseId = 'stadium_booking';
@@ -59,6 +65,7 @@ class BookingService implements BookingsRepository {
 
   final TablesDB _tables;
   final Functions _functions;
+  final Realtime? _realtime;
   final Map<String, _CacheEntry<List<StadiumBooking>>> _bookingsCache = {};
   final Map<String, Future<List<StadiumBooking>>> _bookingsRequests = {};
   final Map<String, _CacheEntry<Set<String>>> _availabilityCache = {};
@@ -69,10 +76,52 @@ class BookingService implements BookingsRepository {
     final cached = _bookingsCache[userId];
     if (cached != null) {
       unawaited(_refreshBookingsInBackground(userId));
-      return List<StadiumBooking>.unmodifiable(cached.value);
+      final now = DateTime.now();
+      return List<StadiumBooking>.unmodifiable(
+        cached.value
+            .where((booking) => booking.belongsInCurrentBookings(now: now))
+            .toList(),
+      );
     }
 
     return _refreshBookings(userId);
+  }
+
+  @override
+  Stream<void> watchBookings(String userId) {
+    return _watchTable(tableId, onEvent: () => _bookingsCache.remove(userId));
+  }
+
+  @override
+  Stream<void> watchBookedSlots(String stadiumId) {
+    return _watchTable(
+      bookedSlotsTableId,
+      onEvent: () => _availabilityCache.remove(stadiumId),
+    );
+  }
+
+  Stream<void> _watchTable(
+    String watchedTableId, {
+    required void Function() onEvent,
+  }) {
+    final realtime = _realtime;
+    if (realtime == null) return const Stream<void>.empty();
+
+    late final RealtimeSubscription subscription;
+    late final StreamController<void> controller;
+    controller = StreamController<void>(
+      onListen: () {
+        subscription = realtime.subscribe([
+          Channel.tablesdb(databaseId).table(watchedTableId).row(),
+        ]);
+        subscription.stream.listen((_) {
+          onEvent();
+          controller.add(null);
+        }, onError: controller.addError);
+      },
+      onCancel: () => subscription.close(),
+    );
+    return controller.stream;
   }
 
   Future<List<StadiumBooking>> _refreshBookings(String userId) async {
@@ -160,9 +209,6 @@ class BookingService implements BookingsRepository {
 
   @override
   Future<Set<String>> bookedSlotKeys(String stadiumId) async {
-    final cached = _freshCachedAvailability(stadiumId);
-    if (cached != null) return cached;
-
     final existingRequest = _availabilityRequests[stadiumId];
     if (existingRequest != null) return existingRequest;
 
@@ -337,12 +383,6 @@ class BookingService implements BookingsRepository {
     }
 
     return hash.toRadixString(16).padLeft(16, '0');
-  }
-
-  Set<String>? _freshCachedAvailability(String stadiumId) {
-    final cached = _availabilityCache[stadiumId];
-    if (cached == null || cached.isExpired(_availabilityCacheTtl)) return null;
-    return Set<String>.of(cached.value);
   }
 
   void _appendCachedBooking(String userId, StadiumBooking booking) {
@@ -847,6 +887,7 @@ int? _parseBookingTime(String value) {
 final BookingsRepository bookingService = BookingService(
   TablesDB(client),
   Functions(client),
+  Realtime(client),
 );
 final ManagerBookingRequestsRepository managerBookingRequestsService =
     ManagerBookingRequestsService(TablesDB(client), Functions(client));

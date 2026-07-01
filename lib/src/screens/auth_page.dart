@@ -296,7 +296,14 @@ class _AuthPageState extends State<AuthPage> with WidgetsBindingObserver {
     } on AppwriteException catch (error) {
       setState(() => _formError = _authErrorMessage(error));
     } catch (error) {
-      setState(() => _formError = 'Authentication failed. Please try again.');
+      final message = error.toString().toLowerCase();
+      setState(
+        () => _formError =
+            message.contains('failed host lookup') ||
+                message.contains('socketexception')
+            ? 'Cannot reach Appwrite. Check your internet or Private DNS, then try again.'
+            : 'Authentication failed. Please try again.',
+      );
     } finally {
       if (mounted) {
         setState(() => _isSubmitting = false);

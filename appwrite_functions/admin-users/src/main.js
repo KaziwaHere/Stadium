@@ -47,6 +47,85 @@ async function listAllUsers(users) {
   return result;
 }
 
+async function listStadiumBookingStats(tables) {
+  const [stadiumRows, bookingRows] = await Promise.all([
+    listAllRows(tables, STADIUMS_TABLE_ID),
+    listAllRows(tables, BOOKINGS_TABLE_ID, [
+      Query.equal("status", ACTIVE_STATUS),
+    ]),
+  ]);
+
+  const stadiums = new Map();
+  for (const row of stadiumRows) {
+    const data = row.data ?? row;
+    stadiums.set(row.$id, {
+      id: row.$id,
+      name: String(data.name ?? "Unnamed stadium"),
+      location: String(data.location ?? ""),
+      price: Number(data.price ?? 0),
+      isFeatured: data.isFeatured === true,
+      bookings: [],
+    });
+  }
+
+  for (const row of bookingRows) {
+    const data = row.data ?? row;
+    const stadiumId = String(data.stadiumId ?? "");
+    if (!stadiumId) continue;
+
+    if (!stadiums.has(stadiumId)) {
+      stadiums.set(stadiumId, {
+        id: stadiumId,
+        name: String(data.stadiumName ?? "Unnamed stadium"),
+        location: String(data.location ?? ""),
+        price: Number(data.price ?? 0),
+        isFeatured: false,
+        bookings: [],
+      });
+    }
+
+    stadiums.get(stadiumId).bookings.push({
+      id: row.$id,
+      userId: String(data.userId ?? ""),
+      userName: String(data.userName ?? "Unknown user"),
+      dayDate: String(data.dayDate ?? ""),
+      slotTime: String(data.slotTime ?? ""),
+      price: Number(data.price ?? stadiums.get(stadiumId).price ?? 0),
+    });
+  }
+
+  const result = Array.from(stadiums.values());
+  for (const stadium of result) {
+    stadium.bookings.sort((a, b) =>
+      `${b.dayDate}|${b.slotTime}`.localeCompare(
+        `${a.dayDate}|${a.slotTime}`,
+      ),
+    );
+    stadium.bookingCount = stadium.bookings.length;
+  }
+  result.sort(
+    (a, b) => b.bookingCount - a.bookingCount || a.name.localeCompare(b.name),
+  );
+  return result;
+}
+
+async function setFeaturedStadium(tables, stadiumId) {
+  if (!UID_REGEX.test(stadiumId)) {
+    throw Object.assign(new Error("Invalid stadium."), { code: 400 });
+  }
+  const rows = await listAllRows(tables, STADIUMS_TABLE_ID);
+  if (!rows.some((row) => row.$id === stadiumId)) {
+    throw Object.assign(new Error("Stadium not found."), { code: 404 });
+  }
+  await Promise.all(
+    rows.map((row) =>
+      tables.updateRow(DATABASE_ID, STADIUMS_TABLE_ID, row.$id, {
+        isFeatured: row.$id === stadiumId,
+      }),
+    ),
+  );
+}
+
 function tablesUrl(path) {
   return new URL(`${process.env.APPWRITE_ENDPOINT}/tablesdb${path}`);
 }
@@ -780,6 +859,17 @@ export default async ({ req, res, log, error }) => {
 
     if (!isAdmin) {
       return res.json({ error: "Admin access required." }, 403);
+    }
+
+    if (action === "listStadiumBookingStats") {
+      const stadiums = await listStadiumBookingStats(tables);
+      return res.json({ stadiums });
+    }
+
+    if (action === "setFeaturedStadium") {
+      const stadiumId = String(parsedBody?.stadiumId ?? "").trim();
+      await setFeaturedStadium(tables, stadiumId);
+      return res.json({ ok: true, stadiumId });
     }
 
     if (
